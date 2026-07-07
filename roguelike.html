@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>石窟のローグ (Stone Crypt Rogue)</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #0b0b0e;
+    color: #d8d3c4;
+    font-family: 'Courier New', Consolas, monospace;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #wrap { display: flex; flex-direction: column; align-items: center; padding: 16px; }
+  h1 { font-size: 18px; font-weight: normal; letter-spacing: 2px; color: #c9a24b; margin: 0 0 10px; }
+  #topbar {
+    width: 768px; display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; margin-bottom: 6px; color: #a8a290;
+  }
+  #hpBarOuter { width: 150px; height: 14px; background: #2a2a30; border: 1px solid #4a4a52; }
+  #hpBarInner { height: 100%; background: #b23a3a; transition: width .15s; }
+  #canvasHolder { position: relative; }
+  canvas { background: #0f0f14; border: 2px solid #3a3630; image-rendering: pixelated; }
+  .scr-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(5,5,8,0.92); color: #d8d3c4;
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; font-size: 14px; padding: 20px; box-sizing: border-box;
+  }
+  .scr-overlay h2 { color: #c9a24b; font-size: 24px; margin: 0 0 6px; letter-spacing: 3px; font-weight: normal; }
+  .scr-overlay .sub { color: #9a947f; font-size: 13px; margin-bottom: 14px; }
+  #overlay h2 { color: #b23a3a; font-size: 26px; letter-spacing: 3px; }
+  .scr-overlay button {
+    margin-top: 10px; padding: 8px 22px; background: #2a2a30; color: #d8c98a;
+    border: 1px solid #6b6250; cursor: pointer; font-family: inherit; font-size: 14px; min-width: 200px;
+  }
+  .scr-overlay button:hover { background: #3a3a42; }
+  #log {
+    width: 768px; height: 92px; margin-top: 8px; background: #101014; border: 1px solid #3a3630;
+    padding: 6px 10px; font-size: 13px; overflow-y: hidden; color: #9a947f; line-height: 1.5;
+  }
+  #log div.msg-new { color: #d8d3c4; }
+  #controls { margin-top: 10px; display: grid; grid-template-columns: 44px 44px 44px; grid-template-rows: 44px 44px 44px; gap: 4px; }
+  #controls button {
+    background: #1c1c22; color: #c9c4b4; border: 1px solid #4a4a52; font-size: 16px; cursor: pointer;
+  }
+  #controls button:hover { background: #2a2a30; }
+  #help { margin-top: 8px; font-size: 12px; color: #6b6558; text-align: center; max-width: 768px; }
+  #storeList { width: 100%; max-width: 480px; margin: 6px 0; }
+  .storeRow {
+    display: flex; justify-content: space-between; align-items: center;
+    border: 1px solid #3a3630; background: #16161a; padding: 8px 12px; margin-bottom: 6px;
+  }
+  .storeInfo { text-align: left; }
+  .storeName { color: #d8d3c4; font-size: 14px; }
+  .storeDesc { color: #8a8578; font-size: 12px; margin-top: 2px; }
+  .storeRow button { min-width: 100px; margin: 0; padding: 6px 10px; font-size: 13px; }
+  #storeMsg { min-height: 16px; color: #d8b23a; font-size: 12px; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>石窟のローグ &mdash; STONE CRYPT ROGUE</h1>
+  <div id="topbar">
+    <div>HP <span id="hpBarOuter"><span id="hpBarInner" style="display:block;"></span></span> <span id="hpText"></span></div>
+    <div>Lv <span id="levelText">1</span> <span id="xpText">(0/10)</span></div>
+    <div id="depthText">Depth 1</div>
+    <div id="goldText">Gold 0</div>
+    <div id="scoreText">Score 0</div>
+  </div>
+  <div id="canvasHolder">
+    <canvas id="game" width="768" height="480"></canvas>
+    <div id="menuOverlay" class="scr-overlay">
+      <h2>石窟のローグ</h2>
+      <div class="sub">STONE CRYPT ROGUE</div>
+      <div id="menuGoldText" style="margin-bottom: 14px;">所持ゴールド: 0</div>
+      <button id="menuStartBtn">冒険に出る</button>
+      <button id="menuStoreBtn">ストア</button>
+    </div>
+    <div id="storeOverlay" class="scr-overlay">
+      <h2>ストア</h2>
+      <div id="storeGoldText" class="sub">所持ゴールド: 0</div>
+      <div id="storeList"></div>
+      <div id="storeMsg"></div>
+      <button id="storeStartBtn">冒険に出る</button>
+      <button id="storeBackBtn">戻る</button>
+    </div>
+    <div id="overlay" class="scr-overlay">
+      <h2 id="overlayTitle">YOU DIED</h2>
+      <div id="overlayStats"></div>
+      <button id="restartBtn">もう一度挑む (Space)</button>
+      <button id="toMenuBtn">ストアへ (アップグレード購入)</button>
+    </div>
+  </div>
+  <div id="log"></div>
+  <div id="controls">
+    <div></div><button id="btnUp">&uarr;</button><div></div>
+    <button id="btnLeft">&larr;</button><button id="btnWait">&middot;</button><button id="btnRight">&rarr;</button>
+    <div></div><button id="btnDown">&darr;</button><div></div>
+  </div>
+  <div id="help">矢印キー / WASD で移動・攻撃、モンスターにぶつかって攻撃。経験値を貯めるとレベルアップし体力・攻撃力が強化される。 &gt; の階段で次の階層へ。金貨は死亡後もストアで永続強化に使える。</div>
+</div>
+<script>
+(function(){
+  const COLS = 32, ROWS = 20, TILE = 24;
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const logEl = document.getElementById('log');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlayTitle');
+  const overlayStats = document.getElementById('overlayStats');
+  const menuOverlay = document.getElementById('menuOverlay');
+  const storeOverlay = document.getElementById('storeOverlay');
+  const menuGoldText = document.getElementById('menuGoldText');
+  const storeGoldText = document.getElementById('storeGoldText');
+  const storeList = document.getElementById('storeList');
+  const storeMsg = document.getElementById('storeMsg');
+
+  let rng = Math.random;
+  function randInt(a, b) { return Math.floor(rng() * (b - a + 1)) + a; }
+  function choice(arr) { return arr[Math.floor(rng() * arr.length)]; }
+
+  let screen = 'menu';
+  let grid, rooms, explored, visible;
+  let player, monsters, items, depth, messages, gameOver, turnCount;
+
+  let gold = 0;
+  const shopUpgrades = { hp: 0, atk: 0, def: 0 };
+
+  const SHOP_ITEMS = [
+    { key: 'hp', name: '体力強化', baseCost: 20, costStep: 15,
+      level: () => shopUpgrades.hp,
+      desc: () => '最大HP +5 (現在 Lv.' + shopUpgrades.hp + ')',
+      buy: () => { shopUpgrades.hp++; } },
+    { key: 'atk', name: '攻撃強化', baseCost: 25, costStep: 20,
+      level: () => shopUpgrades.atk,
+      desc: () => '攻撃力 +1 (現在 Lv.' + shopUpgrades.atk + ')',
+      buy: () => { shopUpgrades.atk++; } },
+    { key: 'def', name: '防御強化', baseCost: 25, costStep: 20,
+      level: () => shopUpgrades.def,
+      desc: () => '防御力 +1 (現在 Lv.' + shopUpgrades.def + ')',
+      buy: () => { shopUpgrades.def++; } },
+  ];
+  function costFor(item) { return item.baseCost + item.level() * item.costStep; }
+
+  const MONSTER_TYPES = [
+    { name: 'ねずみ',   sym: 'r', sprite: 'rat',      hp: 4,  atk: 2, def: 0, xp: 2,  minDepth: 1 },
+    { name: 'ゴブリン', sym: 'g', sprite: 'goblin',   hp: 7,  atk: 3, def: 1, xp: 4,  minDepth: 1 },
+    { name: 'コウモリ', sym: 'b', sprite: 'bat',      hp: 5,  atk: 3, def: 0, xp: 3,  minDepth: 2 },
+    { name: 'オーク',   sym: 'o', sprite: 'orc',      hp: 12, atk: 5, def: 2, xp: 8,  minDepth: 3 },
+    { name: '骸骨',     sym: 's', sprite: 'skeleton', hp: 9,  atk: 4, def: 1, xp: 6,  minDepth: 3 },
+    { name: 'トロール', sym: 'T', sprite: 'troll',    hp: 20, atk: 7, def: 3, xp: 15, minDepth: 5 },
+  ];
+
+  function xpToNextFor(level) { return Math.round(10 * Math.pow(1.35, level - 1)); }
+
+  function baseStats() {
+    return {
+      maxhp: 20 + shopUpgrades.hp * 5,
+      atk: 4 + shopUpgrades.atk,
+      def: 1 + shopUpgrades.def,
+    };
+  }
+
+  function newGame() {
+    depth = 1;
+    turnCount = 0;
+    const base = baseStats();
+    player = {
+      x: 0, y: 0, hp: base.maxhp, maxhp: base.maxhp, atk: base.atk, def: base.def,
+      level: 1, xp: 0, xpToNext: xpToNextFor(1),
+    };
+    messages = [];
+    gameOver = false;
+    screen = 'playing';
+    overlay.style.display = 'none';
+    menuOverlay.style.display = 'none';
+    storeOverlay.style.display = 'none';
+    log('石窟に足を踏み入れた…');
+    generateFloor();
+    render();
+  }
+
+  function generateFloor() {
+    grid = [];
+    for (let y = 0; y < ROWS; y++) {
+      grid.push(new Array(COLS).fill('#'));
+    }
+    explored = [];
+    visible = [];
+    for (let y = 0; y < ROWS; y++) {
+      explored.push(new Array(COLS).fill(false));
+      visible.push(new Array(COLS).fill(false));
+    }
+    rooms = [];
+    const targetRooms = randInt(7, 10);
+    let attempts = 0;
+    while (rooms.length < targetRooms && attempts < 200) {
+      attempts++;
+      const w = randInt(3, 7), h = randInt(3, 6);
+      const x = randInt(1, COLS - w - 2);
+      const y = randInt(1, ROWS - h - 2);
+      const newRoom = { x, y, w, h };
+      let overlaps = false;
+      for (const r of rooms) {
+        if (x - 1 < r.x + r.w + 1 && x + w + 1 > r.x - 1 && y - 1 < r.y + r.h + 1 && y + h + 1 > r.y - 1) {
+          overlaps = true; break;
+        }
+      }
+      if (overlaps) continue;
+      carveRoom(newRoom);
+      if (rooms.length > 0) {
+        const prev = rooms[rooms.length - 1];
+        connect(centerOf(prev), centerOf(newRoom));
+      }
+      rooms.push(newRoom);
+    }
+    if (rooms.length === 0) {
+      const r = { x: 2, y: 2, w: 6, h: 5 };
+      carveRoom(r);
+      rooms.push(r);
+    }
+
+    const start = centerOf(rooms[0]);
+    player.x = start.x; player.y = start.y;
+
+    const stairsRoom = rooms[rooms.length - 1];
+    const stairsPos = centerOf(stairsRoom);
+    grid[stairsPos.y][stairsPos.x] = '>';
+
+    monsters = [];
+    const numMonsters = 3 + depth + randInt(0, 2);
+    const available = MONSTER_TYPES.filter(m => m.minDepth <= depth + 1);
+    for (let i = 0; i < numMonsters; i++) {
+      const room = choice(rooms.slice(1));
+      if (!room) continue;
+      const pos = randomFloorInRoom(room);
+      if (!pos) continue;
+      const template = choice(available);
+      const scale = 1 + (depth - 1) * 0.18;
+      monsters.push({
+        x: pos.x, y: pos.y,
+        name: template.name, sym: template.sym, sprite: template.sprite,
+        hp: Math.round(template.hp * scale), maxhp: Math.round(template.hp * scale),
+        atk: Math.round(template.atk * scale), def: template.def, xp: template.xp,
+      });
+    }
+
+    items = [];
+    const numItems = 2 + randInt(0, 3);
+    for (let i = 0; i < numItems; i++) {
+      const room = choice(rooms);
+      const pos = randomFloorInRoom(room);
+      if (!pos) continue;
+      if (monsters.some(m => m.x === pos.x && m.y === pos.y)) continue;
+      const type = rng() < 0.55 ? 'potion' : (rng() < 0.7 ? 'gold' : 'scroll');
+      items.push({ x: pos.x, y: pos.y, type });
+    }
+
+    computeVisibility();
+  }
+
+  function centerOf(r) {
+    return { x: Math.floor(r.x + r.w / 2), y: Math.floor(r.y + r.h / 2) };
+  }
+
+  function randomFloorInRoom(room) {
+    for (let tries = 0; tries < 20; tries++) {
+      const x = randInt(room.x, room.x + room.w - 1);
+      const y = randInt(room.y, room.y + room.h - 1);
+      if (grid[y][x] === '.') return { x, y };
+    }
+    return null;
+  }
+
+  function carveRoom(r) {
+    for (let y = r.y; y < r.y + r.h; y++) {
+      for (let x = r.x; x < r.x + r.w; x++) {
+        grid[y][x] = '.';
+      }
+    }
+  }
+
+  function connect(a, b) {
+    let x = a.x, y = a.y;
+    const horizontalFirst = rng() < 0.5;
+    if (horizontalFirst) {
+      while (x !== b.x) { grid[y][x] = '.'; x += x < b.x ? 1 : -1; }
+      while (y !== b.y) { grid[y][x] = '.'; y += y < b.y ? 1 : -1; }
+    } else {
+      while (y !== b.y) { grid[y][x] = '.'; y += y < b.y ? 1 : -1; }
+      while (x !== b.x) { grid[y][x] = '.'; x += x < b.x ? 1 : -1; }
+    }
+    grid[y][x] = '.';
+  }
+
+  function inBounds(x, y) { return x >= 0 && x < COLS && y >= 0 && y < ROWS; }
+  function isWalkable(x, y) { return inBounds(x, y) && grid[y][x] !== '#'; }
+
+  function computeVisibility() {
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) visible[y][x] = false;
+    const radius = 7;
+    for (let y = Math.max(0, player.y - radius); y <= Math.min(ROWS - 1, player.y + radius); y++) {
+      for (let x = Math.max(0, player.x - radius); x <= Math.min(COLS - 1, player.x + radius); x++) {
+        const dx = x - player.x, dy = y - player.y;
+        if (dx * dx + dy * dy <= radius * radius && hasLineOfSight(player.x, player.y, x, y)) {
+          visible[y][x] = true;
+          explored[y][x] = true;
+        }
+      }
+    }
+  }
+
+  function hasLineOfSight(x0, y0, x1, y1) {
+    let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+    let sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    let x = x0, y = y0;
+    while (!(x === x1 && y === y1)) {
+      if (grid[y] && grid[y][x] === '#' && !(x === x0 && y === y0)) return false;
+      const e2 = 2 * err;
+      if (e2 > -dy) { err -= dy; x += sx; }
+      if (e2 < dx) { err += dx; y += sy; }
+    }
+    return true;
+  }
+
+  function log(msg) {
+    messages.push(msg);
+    if (messages.length > 40) messages.shift();
+    renderLog();
+  }
+
+  function renderLog() {
+    const recent = messages.slice(-6);
+    logEl.innerHTML = recent.map((m, i) => {
+      const cls = i === recent.length - 1 ? 'msg-new' : '';
+      return '<div class="' + cls + '">' + m + '</div>';
+    }).join('');
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function monsterAt(x, y) { return monsters.find(m => m.x === x && m.y === y); }
+  function itemAt(x, y) { return items.find(it => it.x === x && it.y === y); }
+
+  function tryMovePlayer(dx, dy) {
+    if (screen !== 'playing') return;
+    const nx = player.x + dx, ny = player.y + dy;
+    if (!inBounds(nx, ny)) return;
+    const target = monsterAt(nx, ny);
+    if (target) {
+      attack(player, target, true);
+      if (target.hp <= 0) {
+        log(target.name + ' を倒した！ (+' + target.xp + 'xp)');
+        monsters = monsters.filter(m => m !== target);
+        player.xp += target.xp;
+        checkLevelUp();
+      }
+      endTurn();
+      return;
+    }
+    if (!isWalkable(nx, ny)) return;
+    player.x = nx; player.y = ny;
+    const item = itemAt(nx, ny);
+    if (item) pickupItem(item);
+    if (grid[ny][nx] === '>') {
+      depth++;
+      player.hp = Math.min(player.maxhp, player.hp + 3);
+      log('地下 ' + depth + ' 階へ降りた。');
+      generateFloor();
+      render();
+      return;
+    }
+    endTurn();
+  }
+
+  function checkLevelUp() {
+    while (player.xp >= player.xpToNext) {
+      player.xp -= player.xpToNext;
+      player.level++;
+      player.maxhp += 4;
+      player.hp = player.maxhp;
+      player.atk += 1;
+      if (player.level % 3 === 0) player.def += 1;
+      player.xpToNext = xpToNextFor(player.level);
+      log('レベルアップ！ Lv.' + player.level + ' になり、HPが全回復した。');
+    }
+  }
+
+  function pickupItem(item) {
+    if (item.type === 'potion') {
+      const heal = randInt(6, 12);
+      player.hp = Math.min(player.maxhp, player.hp + heal);
+      log('ポーションを飲んだ。HPが ' + heal + ' 回復した。');
+    } else if (item.type === 'gold') {
+      const g = randInt(5, 25);
+      gold += g;
+      log('金貨を ' + g + ' 枚拾った。');
+    } else if (item.type === 'scroll') {
+      player.maxhp += 3;
+      player.hp += 3;
+      log('力の巻物を読んだ。最大HPが増えた！');
+    }
+    items = items.filter(it => it !== item);
+  }
+
+  function attack(attacker, defender, isPlayerAttacking) {
+    const dmg = Math.max(1, (attacker.atk + randInt(0, 2)) - (defender.def || 0));
+    defender.hp -= dmg;
+    if (isPlayerAttacking) {
+      log('あなたは ' + defender.name + ' に ' + dmg + ' ダメージ！');
+    } else {
+      log(attacker.name + ' があなたに ' + dmg + ' ダメージ！');
+    }
+  }
+
+  function endTurn() {
+    turnCount++;
+    for (const m of monsters.slice()) {
+      if (m.hp <= 0) continue;
+      const dist = Math.abs(m.x - player.x) + Math.abs(m.y - player.y);
+      if (dist === 1 && Math.abs(m.x - player.x) <= 1 && Math.abs(m.y - player.y) <= 1) {
+        attack(m, player, false);
+        if (player.hp <= 0) { die(); return; }
+        continue;
+      }
+      if (dist <= 8 && hasLineOfSight(m.x, m.y, player.x, player.y)) {
+        const dx = Math.sign(player.x - m.x), dy = Math.sign(player.y - m.y);
+        let mx = m.x, my = m.y;
+        if (rng() < 0.5) {
+          if (dx !== 0 && isWalkable(m.x + dx, m.y) && !monsterAt(m.x + dx, m.y)) mx = m.x + dx;
+          else if (dy !== 0 && isWalkable(m.x, m.y + dy) && !monsterAt(m.x, m.y + dy)) my = m.y + dy;
+        } else {
+          if (dy !== 0 && isWalkable(m.x, m.y + dy) && !monsterAt(m.x, m.y + dy)) my = m.y + dy;
+          else if (dx !== 0 && isWalkable(m.x + dx, m.y) && !monsterAt(m.x + dx, m.y)) mx = m.x + dx;
+        }
+        if (!(mx === player.x && my === player.y)) { m.x = mx; m.y = my; }
+      } else if (rng() < 0.3) {
+        const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+        const [dx, dy] = choice(dirs);
+        if (isWalkable(m.x + dx, m.y + dy) && !monsterAt(m.x + dx, m.y + dy)) { m.x += dx; m.y += dy; }
+      }
+    }
+    computeVisibility();
+    render();
+  }
+
+  function die() {
+    gameOver = true;
+    screen = 'dead';
+    const score = gold * 10 + depth * 50 + player.level * 20;
+    log('あなたは倒れた…');
+    overlayTitle.textContent = 'YOU DIED';
+    overlayStats.innerHTML = '到達階層: ' + depth + '<br>レベル: ' + player.level +
+      '<br>所持ゴールド: ' + gold + '<br>スコア: ' + score;
+    overlay.style.display = 'flex';
+    render();
+  }
+
+  const COLORS = { wall: '#232028', wallDim: '#17151a', floor: '#3a352e', floorDim: '#211f1c', stairs: '#d8c98a' };
+
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        if (!explored[y][x]) continue;
+        const isVis = visible[y][x];
+        const tile = grid[y][x];
+        let color;
+        if (tile === '#') color = isVis ? COLORS.wall : COLORS.wallDim;
+        else color = isVis ? COLORS.floor : COLORS.floorDim;
+        ctx.fillStyle = color;
+        ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+        if (tile === '>') {
+          ctx.fillStyle = isVis ? COLORS.stairs : '#6b6250';
+          ctx.font = '18px monospace';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText('>', x * TILE + TILE / 2, y * TILE + TILE / 2 + 1);
+        }
+      }
+    }
+    for (const item of items) {
+      if (!visible[item.y][item.x]) continue;
+      drawSprite(item.type, item.x, item.y);
+    }
+    for (const m of monsters) {
+      if (!visible[m.y][m.x]) continue;
+      drawSprite(m.sprite, m.x, m.y);
+      drawHealthBar(m.x, m.y, m.hp / m.maxhp);
+    }
+    drawSprite('player', player.x, player.y);
+
+    document.getElementById('hpText').textContent = player.hp + ' / ' + player.maxhp;
+    document.getElementById('hpBarInner').style.width = Math.max(0, (player.hp / player.maxhp) * 100) + '%';
+    document.getElementById('levelText').textContent = player.level;
+    document.getElementById('xpText').textContent = '(' + player.xp + '/' + player.xpToNext + ')';
+    document.getElementById('depthText').textContent = 'Depth ' + depth;
+    document.getElementById('goldText').textContent = 'Gold ' + gold;
+    const score = gold * 10 + depth * 50 + player.level * 20;
+    document.getElementById('scoreText').textContent = 'Score ' + score;
+  }
+
+  function drawSprite(kind, x, y) {
+    const cx = x * TILE + TILE / 2;
+    const cy = y * TILE + TILE / 2;
+    const s = TILE / 24;
+    const fn = SPRITES[kind];
+    if (fn) fn(cx, cy, s);
+  }
+
+  function drawHealthBar(x, y, frac) {
+    const barW = TILE - 6, barH = 3;
+    const bx = x * TILE + 3, by = y * TILE + 1;
+    ctx.fillStyle = '#141414';
+    ctx.fillRect(bx - 0.5, by - 0.5, barW + 1, barH + 1);
+    ctx.fillStyle = '#2a2a30';
+    ctx.fillRect(bx, by, barW, barH);
+    const clamped = Math.max(0, Math.min(1, frac));
+    ctx.fillStyle = clamped > 0.5 ? '#5c9e5c' : clamped > 0.25 ? '#d8b23a' : '#c93a3a';
+    ctx.fillRect(bx, by, barW * clamped, barH);
+  }
+
+  const SPRITES = {
+    player(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = '#2e4f78';
+      ctx.beginPath();
+      ctx.moveTo(-6, 10); ctx.lineTo(-4, -1); ctx.lineTo(4, -1); ctx.lineTo(6, 10);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#c9a24b';
+      ctx.fillRect(-5, 4, 10, 1.6);
+      ctx.fillStyle = '#e0b98a';
+      ctx.beginPath(); ctx.arc(0, -5, 4.6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#5a3d22';
+      ctx.beginPath(); ctx.arc(0, -6.5, 4.6, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#221a12';
+      ctx.fillRect(-2.4, -5.2, 1.3, 1.3); ctx.fillRect(1.1, -5.2, 1.3, 1.3);
+      ctx.strokeStyle = '#cfd3d8'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(6, 3); ctx.lineTo(10, -5); ctx.stroke();
+      ctx.restore();
+    },
+    rat(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.strokeStyle = '#6b5a3c'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(4, 6); ctx.quadraticCurveTo(9, 4, 8, -1); ctx.stroke();
+      ctx.fillStyle = '#8a7a5c';
+      ctx.beginPath(); ctx.ellipse(0, 4, 6, 4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(-5, 2, 3.2, 2.8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#6b5a3c';
+      ctx.beginPath(); ctx.moveTo(-7, -0.5); ctx.lineTo(-6, -3); ctx.lineTo(-4.5, -0.2); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-4.5, -0.5); ctx.lineTo(-3.5, -3); ctx.lineTo(-2.5, -0.5); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#c93a3a';
+      ctx.beginPath(); ctx.arc(-6, 1.5, 0.7, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    },
+    goblin(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = '#4a8a4a';
+      ctx.beginPath();
+      ctx.moveTo(-5, 10); ctx.lineTo(-5, 1); ctx.quadraticCurveTo(-5, -6, 0, -6);
+      ctx.quadraticCurveTo(5, -6, 5, 1); ctx.lineTo(5, 10); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#3a6b3a';
+      ctx.beginPath(); ctx.moveTo(-5, -3); ctx.lineTo(-9, -5); ctx.lineTo(-5, 0); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(5, -3); ctx.lineTo(9, -5); ctx.lineTo(5, 0); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#c9302a';
+      ctx.beginPath(); ctx.arc(-2, -3, 1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(2, -3, 1, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#eeeeee';
+      ctx.beginPath(); ctx.moveTo(-1, 0); ctx.lineTo(0, 2.5); ctx.lineTo(1, 0); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    },
+    bat(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = '#6b4a8a';
+      ctx.beginPath(); ctx.moveTo(0, -1); ctx.lineTo(-10, -6); ctx.lineTo(-7, 1); ctx.lineTo(-2, 2); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, -1); ctx.lineTo(10, -6); ctx.lineTo(7, 1); ctx.lineTo(2, 2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#5a3d78';
+      ctx.beginPath(); ctx.ellipse(0, 0, 3.4, 3, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-2, -2.5); ctx.lineTo(-3, -5); ctx.lineTo(-0.8, -2.6); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(2, -2.5); ctx.lineTo(3, -5); ctx.lineTo(0.8, -2.6); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#e23a3a';
+      ctx.beginPath(); ctx.arc(-1.2, -0.3, 0.7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(1.2, -0.3, 0.7, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    },
+    orc(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = '#8a6a3a';
+      ctx.beginPath();
+      ctx.moveTo(-6, 10); ctx.lineTo(-7, 0); ctx.quadraticCurveTo(-7, -7, 0, -7);
+      ctx.quadraticCurveTo(7, -7, 7, 0); ctx.lineTo(6, 10); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#3a2a12'; ctx.lineWidth = 1.1;
+      ctx.beginPath(); ctx.moveTo(-4, -4); ctx.lineTo(-1.5, -3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(4, -4); ctx.lineTo(1.5, -3); ctx.stroke();
+      ctx.fillStyle = '#e2b23a';
+      ctx.beginPath(); ctx.arc(-2.2, -2, 1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(2.2, -2, 1, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#f0ece0';
+      ctx.beginPath(); ctx.moveTo(-3, 0); ctx.lineTo(-3.8, 3); ctx.lineTo(-1.8, 1); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(3, 0); ctx.lineTo(3.8, 3); ctx.lineTo(1.8, 1); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    },
+    skeleton(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.strokeStyle = '#d8d3c4'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(-3, 2); ctx.lineTo(3, 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-3.5, 4); ctx.lineTo(3.5, 4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-3, 6); ctx.lineTo(3, 6); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(-6, 8); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(4, 0); ctx.lineTo(6, 8); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-2, 8); ctx.lineTo(-3, 11); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(2, 8); ctx.lineTo(3, 11); ctx.stroke();
+      ctx.fillStyle = '#e8e4d6';
+      ctx.beginPath(); ctx.arc(0, -4, 4.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(-2, -1, 4, 1.6);
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath(); ctx.arc(-1.6, -4.2, 1, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(1.6, -4.2, 1, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    },
+    troll(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = '#2e5a3a';
+      ctx.beginPath(); ctx.ellipse(0, 1, 9, 8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#22452a';
+      ctx.beginPath(); ctx.ellipse(0, 6, 6, 3, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1e3a26';
+      ctx.beginPath(); ctx.arc(-5, -2, 1.3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(4, 3, 1.1, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#e2c93a';
+      ctx.beginPath(); ctx.arc(-3, -3, 1.3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3, -3, 1.3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath(); ctx.arc(-3, -3, 0.6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3, -3, 0.6, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    },
+    potion(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = 'rgba(150,180,200,0.25)';
+      ctx.strokeStyle = '#8a9aa8'; ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(-3, -2); ctx.lineTo(-3.6, 3); ctx.quadraticCurveTo(-3.6, 7, 0, 7);
+      ctx.quadraticCurveTo(3.6, 7, 3.6, 3); ctx.lineTo(3, -2); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#d8324f';
+      ctx.beginPath();
+      ctx.moveTo(-3.3, 1); ctx.lineTo(-3.6, 3); ctx.quadraticCurveTo(-3.6, 7, 0, 7);
+      ctx.quadraticCurveTo(3.6, 7, 3.6, 3); ctx.lineTo(3.3, 1); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#8a9aa8';
+      ctx.fillRect(-1.4, -5, 2.8, 3.2);
+      ctx.fillStyle = '#8a5a2e';
+      ctx.fillRect(-1.6, -6.6, 3.2, 1.8);
+      ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(-2, 0); ctx.lineTo(-1.4, 5); ctx.stroke();
+      ctx.restore();
+    },
+    gold(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = '#e2b23a';
+      ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#a67a1e'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(0, 0, 3.4, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)'; ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.moveTo(-2, -2.6); ctx.lineTo(-0.6, -3.4); ctx.stroke();
+      ctx.restore();
+    },
+    scroll(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = '#e8dfc0';
+      ctx.fillRect(-6, -2.6, 12, 5.2);
+      ctx.fillStyle = '#c9b98a';
+      ctx.beginPath(); ctx.ellipse(-6, 0, 1.4, 2.8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(6, 0, 1.4, 2.8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#a83a3a'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(-2, -2.6); ctx.lineTo(-2, 2.6); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(2, -2.6); ctx.lineTo(2, 2.6); ctx.stroke();
+      ctx.restore();
+    },
+  };
+
+  function updateMenuGold() {
+    menuGoldText.textContent = '所持ゴールド: ' + gold;
+  }
+
+  function renderStore() {
+    storeGoldText.textContent = '所持ゴールド: ' + gold;
+    storeMsg.textContent = '';
+    storeList.innerHTML = SHOP_ITEMS.map(item => {
+      const cost = costFor(item);
+      return '<div class="storeRow">' +
+        '<div class="storeInfo"><div class="storeName">' + item.name + '</div>' +
+        '<div class="storeDesc">' + item.desc() + '</div></div>' +
+        '<button class="buyBtn" data-key="' + item.key + '">' + cost + 'G 購入</button>' +
+        '</div>';
+    }).join('');
+    storeList.querySelectorAll('.buyBtn').forEach(btn => {
+      btn.onclick = () => buyItem(btn.getAttribute('data-key'));
+    });
+  }
+
+  function buyItem(key) {
+    const item = SHOP_ITEMS.find(i => i.key === key);
+    const cost = costFor(item);
+    if (gold >= cost) {
+      gold -= cost;
+      item.buy();
+      storeMsg.textContent = item.name + ' を購入した！';
+      renderStore();
+    } else {
+      storeMsg.textContent = 'ゴールドが足りません。';
+    }
+  }
+
+  function showMenu() {
+    screen = 'menu';
+    menuOverlay.style.display = 'flex';
+    storeOverlay.style.display = 'none';
+    overlay.style.display = 'none';
+    updateMenuGold();
+  }
+
+  function showStoreScreen() {
+    screen = 'store';
+    storeOverlay.style.display = 'flex';
+    menuOverlay.style.display = 'none';
+    overlay.style.display = 'none';
+    renderStore();
+  }
+
+  const keyMap = {
+    ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+    w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0],
+    W: [0, -1], S: [0, 1], A: [-1, 0], D: [1, 0],
+  };
+  document.addEventListener('keydown', (e) => {
+    if (screen === 'dead') {
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        newGame();
+      }
+      return;
+    }
+    if (screen !== 'playing') return;
+    if (keyMap[e.key]) {
+      e.preventDefault();
+      const [dx, dy] = keyMap[e.key];
+      tryMovePlayer(dx, dy);
+    } else if (e.key === ' ') {
+      e.preventDefault();
+      endTurn();
+    }
+  });
+
+  document.getElementById('btnUp').onclick = () => tryMovePlayer(0, -1);
+  document.getElementById('btnDown').onclick = () => tryMovePlayer(0, 1);
+  document.getElementById('btnLeft').onclick = () => tryMovePlayer(-1, 0);
+  document.getElementById('btnRight').onclick = () => tryMovePlayer(1, 0);
+  document.getElementById('btnWait').onclick = () => { if (screen === 'playing') endTurn(); };
+  document.getElementById('restartBtn').onclick = () => newGame();
+  document.getElementById('toMenuBtn').onclick = () => showMenu();
+  document.getElementById('menuStartBtn').onclick = () => newGame();
+  document.getElementById('menuStoreBtn').onclick = () => showStoreScreen();
+  document.getElementById('storeBackBtn').onclick = () => showMenu();
+  document.getElementById('storeStartBtn').onclick = () => newGame();
+
+  showMenu();
+})();
+</script>
+</body>
+</html>
