@@ -96,8 +96,9 @@
     <canvas id="game" width="768" height="480"></canvas>
     <div id="menuOverlay" class="scr-overlay">
       <h2>石窟のローグ</h2>
-      <div class="sub">STONE CRYPT ROGUE</div>
-      <div id="menuGoldText" style="margin-bottom: 14px;">所持ゴールド: 0</div>
+      <div class="sub">STONE CRYPT ROGUE <span id="versionText"></span></div>
+      <div id="menuGoldText" style="margin-bottom: 4px;">所持ゴールド: 0</div>
+      <div id="menuBestText" style="margin-bottom: 14px; color: #8a8578; font-size: 12px;">ベスト記録: 到達階層 -- / スコア --</div>
       <button id="menuStartBtn">冒険に出る</button>
       <button id="menuStoreBtn">ストア</button>
     </div>
@@ -136,9 +137,13 @@
   const menuOverlay = document.getElementById('menuOverlay');
   const storeOverlay = document.getElementById('storeOverlay');
   const menuGoldText = document.getElementById('menuGoldText');
+  const menuBestText = document.getElementById('menuBestText');
+  const versionText = document.getElementById('versionText');
   const storeGoldText = document.getElementById('storeGoldText');
   const storeList = document.getElementById('storeList');
   const storeMsg = document.getElementById('storeMsg');
+
+  const GAME_VERSION = 'v1.4.0';
 
   let rng = Math.random;
   function randInt(a, b) { return Math.floor(rng() * (b - a + 1)) + a; }
@@ -150,11 +155,13 @@
 
   let gold = 0;
   const shopUpgrades = { hp: 0, atk: 0, def: 0 };
+  let bestDepth = 0;
+  let bestScore = 0;
 
   const SAVE_KEY = 'stoneCryptRogue_save_v1';
   function saveGame() {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ gold, shopUpgrades }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ gold, shopUpgrades, bestDepth, bestScore }));
     } catch (e) { /* localStorage unavailable, ignore */ }
   }
   function loadGame() {
@@ -163,6 +170,8 @@
       if (!raw) return;
       const data = JSON.parse(raw);
       if (typeof data.gold === 'number') gold = data.gold;
+      if (typeof data.bestDepth === 'number') bestDepth = data.bestDepth;
+      if (typeof data.bestScore === 'number') bestScore = data.bestScore;
       if (data.shopUpgrades) {
         shopUpgrades.hp = data.shopUpgrades.hp || 0;
         shopUpgrades.atk = data.shopUpgrades.atk || 0;
@@ -494,10 +503,14 @@
     gameOver = true;
     screen = 'dead';
     const score = gold * 10 + depth * 50 + player.level * 20;
+    let newBest = false;
+    if (depth > bestDepth) { bestDepth = depth; newBest = true; }
+    if (score > bestScore) { bestScore = score; newBest = true; }
     log('あなたは倒れた…');
     overlayTitle.textContent = 'YOU DIED';
     overlayStats.innerHTML = '到達階層: ' + depth + '<br>レベル: ' + player.level +
-      '<br>所持ゴールド: ' + gold + '<br>スコア: ' + score;
+      '<br>所持ゴールド: ' + gold + '<br>スコア: ' + score +
+      (newBest ? '<br><span style="color:#d8b23a;">新記録達成！</span>' : '');
     overlay.style.display = 'flex';
     saveGame();
     render();
@@ -725,8 +738,10 @@
     },
   };
 
-  function updateMenuGold() {
+  function updateMenuInfo() {
     menuGoldText.textContent = '所持ゴールド: ' + gold;
+    menuBestText.textContent = 'ベスト記録: 到達階層 ' + bestDepth + ' / スコア ' + bestScore;
+    versionText.textContent = GAME_VERSION;
   }
 
   function renderStore() {
@@ -764,7 +779,7 @@
     menuOverlay.style.display = 'flex';
     storeOverlay.style.display = 'none';
     overlay.style.display = 'none';
-    updateMenuGold();
+    updateMenuInfo();
   }
 
   function showStoreScreen() {
