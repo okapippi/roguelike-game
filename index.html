@@ -24,12 +24,12 @@
     justify-content: center; align-items: center; gap: 4px 14px;
     font-size: 13px; margin-bottom: 6px; color: #a8a290;
   }
-  #musicToggleBtn {
+  #musicToggleBtn, #pauseBtn {
     background: #1c1c22; color: #c9c4b4; border: 1px solid #4a4a52; font-size: 12px;
     padding: 3px 10px; cursor: pointer; font-family: inherit;
     -webkit-tap-highlight-color: transparent; touch-action: manipulation;
   }
-  #musicToggleBtn:hover { background: #2a2a30; }
+  #musicToggleBtn:hover, #pauseBtn:hover { background: #2a2a30; }
   #hpBarOuter { width: 150px; height: 14px; background: #2a2a30; border: 1px solid #4a4a52; }
   #hpBarInner { height: 100%; background: #b23a3a; transition: width .15s; }
   #canvasHolder { position: relative; width: 100%; max-width: 768px; margin: 0 auto; }
@@ -112,6 +112,7 @@
     <div id="goldText">Gold 0</div>
     <div id="scoreText">Score 0</div>
     <button id="musicToggleBtn" title="音楽のON/OFF">&#9834; ON</button>
+    <button id="pauseBtn" title="一時停止">&#10074;&#10074; 中断</button>
   </div>
   <div id="canvasHolder">
     <canvas id="game" width="768" height="480"></canvas>
@@ -164,15 +165,14 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
-  const firebaseConfig = {
-    apiKey: "AIzaSyB6EyVRfOovwfYTAG0DO7GCvKdiQa52zfg",
-    authDomain: "roguelike-game-506ae.firebaseapp.com",
-    databaseURL: "https://roguelike-game-506ae-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId: "roguelike-game-506ae",
-    storageBucket: "roguelike-game-506ae.firebasestorage.app",
-    messagingSenderId: "550118994459",
-    appId: "1:550118994459:web:40783b37e872182c80bebe",
-    measurementId: "G-5BM789X04G"
+  var firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
   };
 </script>
 <script>
@@ -198,7 +198,7 @@
   const rankingList = document.getElementById('rankingList');
   const rankingMsg = document.getElementById('rankingMsg');
 
-  const GAME_VERSION = 'v1.7.0';
+  const GAME_VERSION = 'v1.8.0';
 
   let rng = Math.random;
   function randInt(a, b) { return Math.floor(rng() * (b - a + 1)) + a; }
@@ -1227,6 +1227,10 @@
   document.getElementById('musicToggleBtn').onclick = () => {
     ensureAudio();
     setMusicEnabled(!musicEnabled);
+  };
+  document.getElementById('pauseBtn').onclick = () => {
+    if (screen === 'playing') pauseGame();
+    else if (screen === 'paused') resumeGame();
   };
   playerNameInput.addEventListener('input', () => {
     playerName = playerNameInput.value.slice(0, 12);
