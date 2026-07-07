@@ -86,6 +86,12 @@
   .storeDesc { color: #8a8578; font-size: 12px; margin-top: 2px; }
   .storeRow button { min-width: 100px; margin: 0; padding: 6px 10px; font-size: 13px; }
   #storeMsg { min-height: 16px; color: #d8b23a; font-size: 12px; margin-top: 4px; }
+  .companionClassRow { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .classBtn {
+    min-width: 0 !important; padding: 4px 8px !important; font-size: 11px !important;
+    background: #201f24; border: 1px solid #4a4a52; color: #a9a49a;
+  }
+  .classBtn.selected { background: #3a5a3a; border-color: #6b9e6b; color: #eaf0ea; }
   #playerNameInput {
     width: 200px; margin-bottom: 10px; padding: 6px 10px; background: #16161a; color: #d8d3c4;
     border: 1px solid #4a4a52; font-family: inherit; font-size: 13px; text-align: center;
@@ -198,7 +204,7 @@
   const rankingList = document.getElementById('rankingList');
   const rankingMsg = document.getElementById('rankingMsg');
 
-  const GAME_VERSION = 'v1.8.0';
+  const GAME_VERSION = 'v1.10.0';
 
   let rng = Math.random;
   function randInt(a, b) { return Math.floor(rng() * (b - a + 1)) + a; }
@@ -206,10 +212,10 @@
 
   let screen = 'menu';
   let grid, rooms, explored, visible;
-  let player, monsters, items, depth, messages, gameOver, turnCount;
+  let player, monsters, items, depth, messages, gameOver, turnCount, companion;
 
   let gold = 0;
-  const shopUpgrades = { hp: 0, atk: 0, def: 0 };
+  const shopUpgrades = { hp: 0, atk: 0, def: 0, companion: 0, companionClass: 'warrior' };
   let bestDepth = 0;
   let bestScore = 0;
   let musicEnabled = true;
@@ -250,6 +256,8 @@
         shopUpgrades.hp = data.shopUpgrades.hp || 0;
         shopUpgrades.atk = data.shopUpgrades.atk || 0;
         shopUpgrades.def = data.shopUpgrades.def || 0;
+        shopUpgrades.companion = data.shopUpgrades.companion || 0;
+        shopUpgrades.companionClass = data.shopUpgrades.companionClass || 'warrior';
       }
     } catch (e) { /* corrupt save data, ignore */ }
   }
@@ -541,6 +549,49 @@
     osc.stop(t + 1.3);
   }
 
+  // 仲間の職業定義。新しい職業を追加するときは、ここに1エントリ追加し、
+  // SPRITES に同名(sprite)の描画関数を追加するだけでよい。
+  // role: 'melee'(隣接攻撃) / 'ranged'(範囲内を攻撃、range マス) / 'support'(companionSupportTurn で処理)
+  // unlocked: false のものはストアに表示されず購入できない(実装・調整が済んだら true にする)。
+  const COMPANION_CLASSES = {
+    warrior: {
+      id: 'warrior', name: '戦士', sprite: 'companion', role: 'melee', range: 1,
+      hpBase: 12, hpPerLevel: 6, atkBase: 3, atkPerLevel: 2, defBase: 1, defPerLevel: 0.5,
+      unlocked: true,
+      desc: '隣接する敵を自動で攻撃してくれる近接タイプ',
+    },
+    mage: {
+      id: 'mage', name: '魔法使い', sprite: 'mage', role: 'ranged', range: 4,
+      hpBase: 8, hpPerLevel: 3, atkBase: 4, atkPerLevel: 3, defBase: 0, defPerLevel: 0,
+      unlocked: true,
+      desc: '離れた敵を魔法で攻撃してくれる遠隔タイプ',
+    },
+    bard: {
+      id: 'bard', name: '吟遊詩人', sprite: 'bard', role: 'support', range: 1,
+      hpBase: 10, hpPerLevel: 4, atkBase: 0, atkPerLevel: 0, defBase: 0, defPerLevel: 0,
+      healBase: 2, healPerLevel: 2, healCooldown: 4,
+      unlocked: true,
+      desc: '一定間隔でプレイヤーのHPを回復してくれる支援タイプ',
+    },
+  };
+  function getUnlockedCompanionClasses() {
+    return Object.values(COMPANION_CLASSES).filter(c => c.unlocked);
+  }
+  function companionClassOf(id) { return COMPANION_CLASSES[id] || COMPANION_CLASSES.warrior; }
+  function companionStatsFor(clsId, lvl) {
+    const c = companionClassOf(clsId);
+    const maxhp = c.hpBase + (lvl - 1) * c.hpPerLevel;
+    return {
+      cls: c.id, name: c.name, sprite: c.sprite, role: c.role, range: c.range,
+      maxhp, hp: maxhp,
+      atk: c.atkBase + (lvl - 1) * c.atkPerLevel,
+      def: c.defBase + Math.floor((lvl - 1) * c.defPerLevel),
+      healAmount: c.healBase ? c.healBase + (lvl - 1) * (c.healPerLevel || 0) : 0,
+      healCooldown: c.healCooldown || 0,
+      healTimer: 0,
+    };
+  }
+
   const SHOP_ITEMS = [
     { key: 'hp', name: '体力強化', baseCost: 20, costStep: 15,
       level: () => shopUpgrades.hp,
@@ -554,6 +605,15 @@
       level: () => shopUpgrades.def,
       desc: () => '防御力 +1 (現在 Lv.' + shopUpgrades.def + ')',
       buy: () => { shopUpgrades.def++; } },
+    { key: 'companion', name: '仲間', baseCost: 60, costStep: 35,
+      level: () => shopUpgrades.companion,
+      desc: () => {
+        const cls = companionClassOf(shopUpgrades.companionClass);
+        return shopUpgrades.companion === 0
+          ? cls.name + 'が同行し、' + cls.desc + '(未加入)'
+          : cls.name + ' Lv.' + shopUpgrades.companion + ' が同行中(強化するほど強くなる)';
+      },
+      buy: () => { shopUpgrades.companion++; } },
   ];
   function costFor(item) { return item.baseCost + item.level() * item.costStep; }
 
@@ -594,7 +654,25 @@
     rankingOverlay.style.display = 'none';
     log('石窟に足を踏み入れた…');
     generateFloor();
+    initCompanion();
     render();
+  }
+
+  function initCompanion() {
+    if (shopUpgrades.companion < 1) { companion = null; return; }
+    const stats = companionStatsFor(shopUpgrades.companionClass, shopUpgrades.companion);
+    companion = Object.assign({ x: player.x, y: player.y }, stats);
+    placeCompanionNearPlayer();
+  }
+
+  function placeCompanionNearPlayer() {
+    if (!companion) return;
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    for (const [dx, dy] of dirs) {
+      const nx = player.x + dx, ny = player.y + dy;
+      if (isWalkable(nx, ny) && !monsterAt(nx, ny)) { companion.x = nx; companion.y = ny; return; }
+    }
+    companion.x = player.x; companion.y = player.y;
   }
 
   function generateFloor() {
@@ -786,6 +864,10 @@
       log('地下 ' + depth + ' 階へ降りた。');
       playStairsSfx();
       generateFloor();
+      if (companion && companion.hp > 0) {
+        companion.hp = Math.min(companion.maxhp, companion.hp + 3);
+        placeCompanionNearPlayer();
+      }
       render();
       return;
     }
@@ -838,6 +920,69 @@
     }
   }
 
+  function companionTurn() {
+    if (!companion || companion.hp <= 0) return;
+    if (companion.role === 'support') { companionSupportTurn(); return; }
+    const range = companion.range || 1;
+    let target;
+    if (range <= 1) {
+      target = monsters.find(m => m.hp > 0 &&
+        Math.abs(m.x - companion.x) + Math.abs(m.y - companion.y) === 1);
+    } else {
+      // ranged/magic companions (e.g. future 魔法使い) attack anything within
+      // `range` tiles as long as they have line of sight, without needing to close in.
+      target = monsters.find(m => m.hp > 0 &&
+        Math.max(Math.abs(m.x - companion.x), Math.abs(m.y - companion.y)) <= range &&
+        hasLineOfSight(companion.x, companion.y, m.x, m.y));
+    }
+    if (target) {
+      const dmg = Math.max(1, (companion.atk + randInt(0, 2)) - (target.def || 0));
+      target.hp -= dmg;
+      log(companion.name + ' が ' + target.name + ' に ' + dmg + ' ダメージ！');
+      playHitSfx(true);
+      if (target.hp <= 0) {
+        log(target.name + ' は' + companion.name + 'に倒された！ (+' + target.xp + 'xp)');
+        monsters = monsters.filter(m => m !== target);
+        player.xp += target.xp;
+        checkLevelUp();
+      }
+      return;
+    }
+    companionFollowPlayer();
+  }
+
+  // 現在地からプレイヤーに向かって1マス移動する共通処理(近接・遠隔タイプ共通)。
+  function companionFollowPlayer() {
+    const dist = Math.max(Math.abs(companion.x - player.x), Math.abs(companion.y - player.y));
+    if (dist <= 1) return;
+    const dx = Math.sign(player.x - companion.x), dy = Math.sign(player.y - companion.y);
+    let nx = companion.x, ny = companion.y;
+    if (dx !== 0 && isWalkable(companion.x + dx, companion.y) && !monsterAt(companion.x + dx, companion.y) &&
+      !(player.x === companion.x + dx && player.y === companion.y)) {
+      nx = companion.x + dx;
+    } else if (dy !== 0 && isWalkable(companion.x, companion.y + dy) && !monsterAt(companion.x, companion.y + dy) &&
+      !(player.x === companion.x && player.y === companion.y + dy)) {
+      ny = companion.y + dy;
+    }
+    companion.x = nx; companion.y = ny;
+  }
+
+  // 支援タイプ(吟遊詩人など)専用の行動。一定間隔でプレイヤーを回復する。
+  function companionSupportTurn() {
+    if (companion.healAmount > 0) {
+      if (companion.healTimer > 0) {
+        companion.healTimer--;
+      } else if (player.hp < player.maxhp) {
+        const heal = Math.min(companion.healAmount, player.maxhp - player.hp);
+        player.hp += heal;
+        log(companion.name + 'の詩でHPが ' + heal + ' 回復した。');
+        playPotionSfx();
+        companion.healTimer = companion.healCooldown;
+      }
+    }
+    companionFollowPlayer();
+  }
+
   function endTurn() {
     turnCount++;
     for (const m of monsters.slice()) {
@@ -846,6 +991,17 @@
       if (dist === 1 && Math.abs(m.x - player.x) <= 1 && Math.abs(m.y - player.y) <= 1) {
         attack(m, player, false);
         if (player.hp <= 0) { die(); return; }
+        continue;
+      }
+      if (companion && companion.hp > 0 &&
+        Math.abs(m.x - companion.x) + Math.abs(m.y - companion.y) === 1) {
+        const dmg = Math.max(1, (m.atk + randInt(0, 2)) - (companion.def || 0));
+        companion.hp -= dmg;
+        log(m.name + ' が' + companion.name + 'に ' + dmg + ' ダメージ！');
+        if (companion.hp <= 0) {
+          companion.hp = 0;
+          log(companion.name + 'が倒れてしまった…');
+        }
         continue;
       }
       if (dist <= 8 && hasLineOfSight(m.x, m.y, player.x, player.y)) {
@@ -865,6 +1021,7 @@
         if (isWalkable(m.x + dx, m.y + dy) && !monsterAt(m.x + dx, m.y + dy)) { m.x += dx; m.y += dy; }
       }
     }
+    companionTurn();
     computeVisibility();
     render();
   }
@@ -919,6 +1076,10 @@
       drawSprite(m.sprite, m.x, m.y);
       drawHealthBar(m.x, m.y, m.hp / m.maxhp);
     }
+    if (companion && companion.hp > 0 && visible[companion.y][companion.x]) {
+      drawSprite(companion.sprite || 'companion', companion.x, companion.y);
+      drawHealthBar(companion.x, companion.y, companion.hp / companion.maxhp);
+    }
     drawSprite('player', player.x, player.y);
 
     document.getElementById('hpText').textContent = player.hp + ' / ' + player.maxhp;
@@ -968,6 +1129,68 @@
       ctx.fillRect(-2.4, -5.2, 1.3, 1.3); ctx.fillRect(1.1, -5.2, 1.3, 1.3);
       ctx.strokeStyle = '#cfd3d8'; ctx.lineWidth = 1.4;
       ctx.beginPath(); ctx.moveTo(6, 3); ctx.lineTo(10, -5); ctx.stroke();
+      ctx.restore();
+    },
+    companion(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = '#7a3030';
+      ctx.beginPath();
+      ctx.moveTo(-6, 10); ctx.lineTo(-4, -1); ctx.lineTo(4, -1); ctx.lineTo(6, 10);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#c9a24b';
+      ctx.fillRect(-5, 4, 10, 1.6);
+      ctx.fillStyle = '#e0b98a';
+      ctx.beginPath(); ctx.arc(0, -5, 4.6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#8a6a3a';
+      ctx.beginPath(); ctx.arc(0, -6.5, 4.6, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = '#221a12';
+      ctx.fillRect(-2.4, -5.2, 1.3, 1.3); ctx.fillRect(1.1, -5.2, 1.3, 1.3);
+      ctx.strokeStyle = '#cfd3d8'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(-6, 3); ctx.lineTo(-10, -5); ctx.stroke();
+      ctx.restore();
+    },
+    mage(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = '#4a2e78';
+      ctx.beginPath();
+      ctx.moveTo(-6, 10); ctx.lineTo(-3, -2); ctx.lineTo(3, -2); ctx.lineTo(6, 10);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#c9a24b';
+      ctx.fillRect(-5, 4, 10, 1.6);
+      ctx.fillStyle = '#e0b98a';
+      ctx.beginPath(); ctx.arc(0, -5.5, 4.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#3a1f5c';
+      ctx.beginPath(); ctx.ellipse(0, -8, 6, 1.6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-4.5, -8); ctx.lineTo(0, -17); ctx.lineTo(4.5, -8); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#221a12';
+      ctx.fillRect(-2.2, -5.6, 1.2, 1.2); ctx.fillRect(1, -5.6, 1.2, 1.2);
+      ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.moveTo(6, 4); ctx.lineTo(9.5, -7); ctx.stroke();
+      ctx.fillStyle = '#3ad0e2';
+      ctx.beginPath(); ctx.arc(9.5, -8.3, 1.6, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    },
+    bard(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = '#2e6b5a';
+      ctx.beginPath();
+      ctx.moveTo(-6, 10); ctx.lineTo(-4, -1); ctx.lineTo(4, -1); ctx.lineTo(6, 10);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#c9a24b';
+      ctx.fillRect(-5, 4, 10, 1.6);
+      ctx.fillStyle = '#e0b98a';
+      ctx.beginPath(); ctx.arc(0, -5, 4.6, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#1f4a3d';
+      ctx.beginPath(); ctx.arc(0, -6.5, 4.6, Math.PI, 0); ctx.fill();
+      ctx.strokeStyle = '#e2b23a'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(2, -10); ctx.lineTo(6.5, -14.5); ctx.stroke();
+      ctx.fillStyle = '#221a12';
+      ctx.fillRect(-2.4, -5.2, 1.3, 1.3); ctx.fillRect(1.1, -5.2, 1.3, 1.3);
+      ctx.fillStyle = '#8a5a2e';
+      ctx.beginPath(); ctx.ellipse(-8, 4, 2.6, 3.6, 0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#e8e4d6'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(-9.6, 1.6); ctx.lineTo(-6.6, 6.4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-8.6, 1.2); ctx.lineTo(-5.6, 6); ctx.stroke();
       ctx.restore();
     },
     rat(cx, cy, s) {
@@ -1122,15 +1345,36 @@
     storeMsg.textContent = '';
     storeList.innerHTML = SHOP_ITEMS.map(item => {
       const cost = costFor(item);
+      let extra = '';
+      if (item.key === 'companion') {
+        extra = '<div class="companionClassRow">' +
+          getUnlockedCompanionClasses().map(c =>
+            '<button class="classBtn' + (shopUpgrades.companionClass === c.id ? ' selected' : '') +
+            '" data-cls="' + c.id + '">' + c.name + '</button>'
+          ).join('') +
+          '</div>';
+      }
       return '<div class="storeRow">' +
         '<div class="storeInfo"><div class="storeName">' + item.name + '</div>' +
-        '<div class="storeDesc">' + item.desc() + '</div></div>' +
+        '<div class="storeDesc">' + item.desc() + '</div>' + extra + '</div>' +
         '<button class="buyBtn" data-key="' + item.key + '">' + cost + 'G 購入</button>' +
         '</div>';
     }).join('');
     storeList.querySelectorAll('.buyBtn').forEach(btn => {
       btn.onclick = () => buyItem(btn.getAttribute('data-key'));
     });
+    storeList.querySelectorAll('.classBtn').forEach(btn => {
+      btn.onclick = () => selectCompanionClass(btn.getAttribute('data-cls'));
+    });
+  }
+
+  function selectCompanionClass(clsId) {
+    const cls = COMPANION_CLASSES[clsId];
+    if (!cls || !cls.unlocked || shopUpgrades.companionClass === clsId) return;
+    shopUpgrades.companionClass = clsId;
+    saveGame();
+    storeMsg.textContent = cls.name + ' を選択した。次の冒険から同行する。';
+    renderStore();
   }
 
   function buyItem(key) {
