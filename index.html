@@ -86,6 +86,20 @@
   .storeDesc { color: #8a8578; font-size: 12px; margin-top: 2px; }
   .storeRow button { min-width: 100px; margin: 0; padding: 6px 10px; font-size: 13px; }
   #storeMsg { min-height: 16px; color: #d8b23a; font-size: 12px; margin-top: 4px; }
+  #playerNameInput {
+    width: 200px; margin-bottom: 10px; padding: 6px 10px; background: #16161a; color: #d8d3c4;
+    border: 1px solid #4a4a52; font-family: inherit; font-size: 13px; text-align: center;
+  }
+  #rankingList { width: 100%; max-width: 480px; margin: 6px 0; max-height: 260px; overflow-y: auto; }
+  .rankRow {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid #3a3630; background: #16161a; padding: 6px 10px; margin-bottom: 4px; font-size: 13px;
+  }
+  .rankPos { width: 22px; color: #8a8578; flex-shrink: 0; }
+  .rankName { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rankDepth { width: 70px; color: #8a8578; font-size: 12px; }
+  .rankScore { width: 60px; text-align: right; color: #d8b23a; }
+  #rankingMsg { min-height: 16px; color: #8a8578; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -104,10 +118,12 @@
     <div id="menuOverlay" class="scr-overlay">
       <h2>石窟のローグ</h2>
       <div class="sub">STONE CRYPT ROGUE <span id="versionText"></span></div>
+      <input type="text" id="playerNameInput" placeholder="プレイヤー名(ランキング用)" maxlength="12">
       <div id="menuGoldText" style="margin-bottom: 4px;">所持ゴールド: 0</div>
       <div id="menuBestText" style="margin-bottom: 14px; color: #8a8578; font-size: 12px;">ベスト記録: 到達階層 -- / スコア --</div>
       <button id="menuStartBtn">冒険に出る</button>
       <button id="menuStoreBtn">ストア</button>
+      <button id="menuRankingBtn">ランキング</button>
     </div>
     <div id="storeOverlay" class="scr-overlay">
       <h2>ストア</h2>
@@ -116,6 +132,13 @@
       <div id="storeMsg"></div>
       <button id="storeStartBtn">冒険に出る</button>
       <button id="storeBackBtn">戻る</button>
+    </div>
+    <div id="rankingOverlay" class="scr-overlay">
+      <h2>ランキング</h2>
+      <div class="sub">到達階層・スコアの全体ランキング(上位20名)</div>
+      <div id="rankingList"></div>
+      <div id="rankingMsg"></div>
+      <button id="rankingBackBtn">戻る</button>
     </div>
     <div id="overlay" class="scr-overlay">
       <h2 id="overlayTitle">YOU DIED</h2>
@@ -138,6 +161,19 @@
   </div>
   <div id="help">矢印キー / WASD で移動・攻撃、モンスターにぶつかって攻撃。経験値を貯めるとレベルアップし体力・攻撃力が強化される。 &gt; の階段で次の階層へ。金貨は死亡後もストアで永続強化に使える。Escapeキーで一時停止。</div>
 </div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+  var firebaseConfig = {
+    apiKey: "YOUR_API_KEY",
+    authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
+    databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
+    projectId: "YOUR_PROJECT_ID",
+    storageBucket: "YOUR_PROJECT_ID.appspot.com",
+    messagingSenderId: "YOUR_SENDER_ID",
+    appId: "YOUR_APP_ID"
+  };
+</script>
 <script>
 (function(){
   const COLS = 32, ROWS = 20, TILE = 24;
@@ -156,8 +192,12 @@
   const storeGoldText = document.getElementById('storeGoldText');
   const storeList = document.getElementById('storeList');
   const storeMsg = document.getElementById('storeMsg');
+  const playerNameInput = document.getElementById('playerNameInput');
+  const rankingOverlay = document.getElementById('rankingOverlay');
+  const rankingList = document.getElementById('rankingList');
+  const rankingMsg = document.getElementById('rankingMsg');
 
-  const GAME_VERSION = 'v1.6.0';
+  const GAME_VERSION = 'v1.7.0';
 
   let rng = Math.random;
   function randInt(a, b) { return Math.floor(rng() * (b - a + 1)) + a; }
@@ -172,11 +212,27 @@
   let bestDepth = 0;
   let bestScore = 0;
   let musicEnabled = true;
+  let playerName = '';
+  let playerId = null;
 
   const SAVE_KEY = 'stoneCryptRogue_save_v1';
+  const PID_KEY = 'stoneCryptRogue_pid';
+
+  function ensurePlayerId() {
+    if (playerId) return playerId;
+    try {
+      const existing = localStorage.getItem(PID_KEY);
+      if (existing) { playerId = existing; return playerId; }
+    } catch (e) { /* ignore */ }
+    playerId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() :
+      ('p' + Date.now().toString(36) + Math.random().toString(36).slice(2));
+    try { localStorage.setItem(PID_KEY, playerId); } catch (e) { /* ignore */ }
+    return playerId;
+  }
+
   function saveGame() {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ gold, shopUpgrades, bestDepth, bestScore, musicEnabled }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ gold, shopUpgrades, bestDepth, bestScore, musicEnabled, playerName }));
     } catch (e) { /* localStorage unavailable, ignore */ }
   }
   function loadGame() {
@@ -188,12 +244,91 @@
       if (typeof data.bestDepth === 'number') bestDepth = data.bestDepth;
       if (typeof data.bestScore === 'number') bestScore = data.bestScore;
       if (typeof data.musicEnabled === 'boolean') musicEnabled = data.musicEnabled;
+      if (typeof data.playerName === 'string') playerName = data.playerName;
       if (data.shopUpgrades) {
         shopUpgrades.hp = data.shopUpgrades.hp || 0;
         shopUpgrades.atk = data.shopUpgrades.atk || 0;
         shopUpgrades.def = data.shopUpgrades.def || 0;
       }
     } catch (e) { /* corrupt save data, ignore */ }
+  }
+
+  let firebaseReady = false;
+  let db = null;
+  function initFirebase() {
+    try {
+      if (typeof firebase === 'undefined') return;
+      if (!firebaseConfig || !firebaseConfig.apiKey || firebaseConfig.apiKey.indexOf('YOUR_') === 0) return;
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.database();
+      firebaseReady = true;
+    } catch (e) {
+      firebaseReady = false;
+    }
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  }
+
+  function submitScore(name, depthReached, scoreValue) {
+    if (!firebaseReady) return;
+    const safeName = (name || '名無しの冒険者').slice(0, 12);
+    const pid = ensurePlayerId();
+    const ref = db.ref('scores/' + pid);
+    ref.once('value').then(snap => {
+      const existing = snap.val();
+      if (!existing || scoreValue > existing.score) {
+        ref.set({ name: safeName, depth: depthReached, score: scoreValue, updatedAt: Date.now() });
+      }
+    }).catch(() => { /* offline or blocked, ignore */ });
+  }
+
+  function showRanking() {
+    screen = 'ranking';
+    rankingOverlay.style.display = 'flex';
+    menuOverlay.style.display = 'none';
+    storeOverlay.style.display = 'none';
+    overlay.style.display = 'none';
+    loadRanking();
+  }
+
+  function loadRanking() {
+    rankingList.innerHTML = '';
+    rankingMsg.textContent = '読み込み中…';
+    if (!firebaseReady) {
+      rankingMsg.textContent = 'ランキング機能は未設定です(サーバー未接続)。';
+      return;
+    }
+    db.ref('scores').orderByChild('score').limitToLast(20).once('value').then(snap => {
+      const entries = [];
+      snap.forEach(child => {
+        const v = child.val();
+        entries.push({ pid: child.key, name: v.name, depth: v.depth, score: v.score });
+      });
+      entries.sort((a, b) => b.score - a.score);
+      renderRankingList(entries);
+    }).catch(() => {
+      rankingMsg.textContent = 'ランキングの取得に失敗しました。';
+    });
+  }
+
+  function renderRankingList(entries) {
+    if (entries.length === 0) {
+      rankingMsg.textContent = 'まだ記録がありません。最初の記録を作ろう！';
+      return;
+    }
+    rankingMsg.textContent = '';
+    const myId = ensurePlayerId();
+    rankingList.innerHTML = entries.map((e, i) => {
+      const mineStyle = e.pid === myId ? ' style="border-color: #c9a24b; color: #d8c98a;"' : '';
+      return '<div class="rankRow"' + mineStyle + '>' +
+        '<span class="rankPos">' + (i + 1) + '</span>' +
+        '<span class="rankName">' + escapeHtml(e.name || '名無し') + '</span>' +
+        '<span class="rankDepth">階層 ' + e.depth + '</span>' +
+        '<span class="rankScore">' + e.score + '</span>' +
+        '</div>';
+    }).join('');
   }
 
   let audioCtx = null;
@@ -455,6 +590,7 @@
     menuOverlay.style.display = 'none';
     storeOverlay.style.display = 'none';
     pauseOverlay.style.display = 'none';
+    rankingOverlay.style.display = 'none';
     log('石窟に足を踏み入れた…');
     generateFloor();
     render();
@@ -739,6 +875,7 @@
     let newBest = false;
     if (depth > bestDepth) { bestDepth = depth; newBest = true; }
     if (score > bestScore) { bestScore = score; newBest = true; }
+    if (newBest) submitScore(playerName, bestDepth, bestScore);
     log('あなたは倒れた…');
     overlayTitle.textContent = 'YOU DIED';
     overlayStats.innerHTML = '到達階層: ' + depth + '<br>レベル: ' + player.level +
@@ -976,6 +1113,7 @@
     menuGoldText.textContent = '所持ゴールド: ' + gold;
     menuBestText.textContent = 'ベスト記録: 到達階層 ' + bestDepth + ' / スコア ' + bestScore;
     versionText.textContent = GAME_VERSION;
+    if (playerNameInput.value !== playerName) playerNameInput.value = playerName;
   }
 
   function renderStore() {
@@ -1014,6 +1152,7 @@
     storeOverlay.style.display = 'none';
     overlay.style.display = 'none';
     pauseOverlay.style.display = 'none';
+    rankingOverlay.style.display = 'none';
     updateMenuInfo();
   }
 
@@ -1023,6 +1162,7 @@
     menuOverlay.style.display = 'none';
     overlay.style.display = 'none';
     pauseOverlay.style.display = 'none';
+    rankingOverlay.style.display = 'none';
     renderStore();
   }
 
@@ -1079,17 +1219,24 @@
   document.getElementById('pauseToMenuBtn').onclick = () => showMenu();
   document.getElementById('menuStartBtn').onclick = () => newGame();
   document.getElementById('menuStoreBtn').onclick = () => showStoreScreen();
+  document.getElementById('menuRankingBtn').onclick = () => showRanking();
+  document.getElementById('rankingBackBtn').onclick = () => showMenu();
   document.getElementById('storeBackBtn').onclick = () => showMenu();
   document.getElementById('storeStartBtn').onclick = () => newGame();
   document.getElementById('musicToggleBtn').onclick = () => {
     ensureAudio();
     setMusicEnabled(!musicEnabled);
   };
+  playerNameInput.addEventListener('input', () => {
+    playerName = playerNameInput.value.slice(0, 12);
+    saveGame();
+  });
 
   document.addEventListener('pointerdown', ensureAudio, { once: true });
   document.addEventListener('keydown', ensureAudio, { once: true });
   window.addEventListener('beforeunload', saveGame);
 
+  initFirebase();
   loadGame();
   updateMusicBtn();
   showMenu();
