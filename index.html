@@ -123,6 +123,12 @@
       <button id="restartBtn">もう一度挑む (Space)</button>
       <button id="toMenuBtn">ストアへ (アップグレード購入)</button>
     </div>
+    <div id="pauseOverlay" class="scr-overlay">
+      <h2>一時停止</h2>
+      <div class="sub">Escapeキーでも再開できます</div>
+      <button id="resumeBtn">再開する (Escape)</button>
+      <button id="pauseToMenuBtn">トップページに戻る</button>
+    </div>
   </div>
   <div id="log"></div>
   <div id="controls">
@@ -130,7 +136,7 @@
     <button id="btnLeft">&larr;</button><button id="btnWait">&middot;</button><button id="btnRight">&rarr;</button>
     <div></div><button id="btnDown">&darr;</button><div></div>
   </div>
-  <div id="help">矢印キー / WASD で移動・攻撃、モンスターにぶつかって攻撃。経験値を貯めるとレベルアップし体力・攻撃力が強化される。 &gt; の階段で次の階層へ。金貨は死亡後もストアで永続強化に使える。</div>
+  <div id="help">矢印キー / WASD で移動・攻撃、モンスターにぶつかって攻撃。経験値を貯めるとレベルアップし体力・攻撃力が強化される。 &gt; の階段で次の階層へ。金貨は死亡後もストアで永続強化に使える。Escapeキーで一時停止。</div>
 </div>
 <script>
 (function(){
@@ -141,6 +147,7 @@
   const overlay = document.getElementById('overlay');
   const overlayTitle = document.getElementById('overlayTitle');
   const overlayStats = document.getElementById('overlayStats');
+  const pauseOverlay = document.getElementById('pauseOverlay');
   const menuOverlay = document.getElementById('menuOverlay');
   const storeOverlay = document.getElementById('storeOverlay');
   const menuGoldText = document.getElementById('menuGoldText');
@@ -150,7 +157,7 @@
   const storeList = document.getElementById('storeList');
   const storeMsg = document.getElementById('storeMsg');
 
-  const GAME_VERSION = 'v1.5.0';
+  const GAME_VERSION = 'v1.6.0';
 
   let rng = Math.random;
   function randInt(a, b) { return Math.floor(rng() * (b - a + 1)) + a; }
@@ -447,6 +454,7 @@
     overlay.style.display = 'none';
     menuOverlay.style.display = 'none';
     storeOverlay.style.display = 'none';
+    pauseOverlay.style.display = 'none';
     log('石窟に足を踏み入れた…');
     generateFloor();
     render();
@@ -524,6 +532,7 @@
       const pos = randomFloorInRoom(room);
       if (!pos) continue;
       if (monsters.some(m => m.x === pos.x && m.y === pos.y)) continue;
+      if (items.some(it => it.x === pos.x && it.y === pos.y)) continue;
       const type = rng() < 0.55 ? 'potion' : (rng() < 0.7 ? 'gold' : 'scroll');
       items.push({ x: pos.x, y: pos.y, type });
     }
@@ -1004,6 +1013,7 @@
     menuOverlay.style.display = 'flex';
     storeOverlay.style.display = 'none';
     overlay.style.display = 'none';
+    pauseOverlay.style.display = 'none';
     updateMenuInfo();
   }
 
@@ -1012,7 +1022,20 @@
     storeOverlay.style.display = 'flex';
     menuOverlay.style.display = 'none';
     overlay.style.display = 'none';
+    pauseOverlay.style.display = 'none';
     renderStore();
+  }
+
+  function pauseGame() {
+    if (screen !== 'playing') return;
+    screen = 'paused';
+    pauseOverlay.style.display = 'flex';
+  }
+
+  function resumeGame() {
+    if (screen !== 'paused') return;
+    screen = 'playing';
+    pauseOverlay.style.display = 'none';
   }
 
   const keyMap = {
@@ -1021,6 +1044,12 @@
     W: [0, -1], S: [0, 1], A: [-1, 0], D: [1, 0],
   };
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (screen === 'playing') pauseGame();
+      else if (screen === 'paused') resumeGame();
+      return;
+    }
     if (screen === 'dead') {
       if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault();
@@ -1046,6 +1075,8 @@
   document.getElementById('btnWait').onclick = () => { if (screen === 'playing') endTurn(); };
   document.getElementById('restartBtn').onclick = () => newGame();
   document.getElementById('toMenuBtn').onclick = () => showMenu();
+  document.getElementById('resumeBtn').onclick = () => resumeGame();
+  document.getElementById('pauseToMenuBtn').onclick = () => showMenu();
   document.getElementById('menuStartBtn').onclick = () => newGame();
   document.getElementById('menuStoreBtn').onclick = () => showStoreScreen();
   document.getElementById('storeBackBtn').onclick = () => showMenu();
