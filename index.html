@@ -24,6 +24,12 @@
     justify-content: center; align-items: center; gap: 4px 14px;
     font-size: 13px; margin-bottom: 6px; color: #a8a290;
   }
+  #musicToggleBtn {
+    background: #1c1c22; color: #c9c4b4; border: 1px solid #4a4a52; font-size: 12px;
+    padding: 3px 10px; cursor: pointer; font-family: inherit;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  }
+  #musicToggleBtn:hover { background: #2a2a30; }
   #hpBarOuter { width: 150px; height: 14px; background: #2a2a30; border: 1px solid #4a4a52; }
   #hpBarInner { height: 100%; background: #b23a3a; transition: width .15s; }
   #canvasHolder { position: relative; width: 100%; max-width: 768px; margin: 0 auto; }
@@ -91,6 +97,7 @@
     <div id="depthText">Depth 1</div>
     <div id="goldText">Gold 0</div>
     <div id="scoreText">Score 0</div>
+    <button id="musicToggleBtn" title="音楽のON/OFF">&#9834; ON</button>
   </div>
   <div id="canvasHolder">
     <canvas id="game" width="768" height="480"></canvas>
@@ -157,11 +164,12 @@
   const shopUpgrades = { hp: 0, atk: 0, def: 0 };
   let bestDepth = 0;
   let bestScore = 0;
+  let musicEnabled = true;
 
   const SAVE_KEY = 'stoneCryptRogue_save_v1';
   function saveGame() {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ gold, shopUpgrades, bestDepth, bestScore }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ gold, shopUpgrades, bestDepth, bestScore, musicEnabled }));
     } catch (e) { /* localStorage unavailable, ignore */ }
   }
   function loadGame() {
@@ -172,12 +180,222 @@
       if (typeof data.gold === 'number') gold = data.gold;
       if (typeof data.bestDepth === 'number') bestDepth = data.bestDepth;
       if (typeof data.bestScore === 'number') bestScore = data.bestScore;
+      if (typeof data.musicEnabled === 'boolean') musicEnabled = data.musicEnabled;
       if (data.shopUpgrades) {
         shopUpgrades.hp = data.shopUpgrades.hp || 0;
         shopUpgrades.atk = data.shopUpgrades.atk || 0;
         shopUpgrades.def = data.shopUpgrades.def || 0;
       }
     } catch (e) { /* corrupt save data, ignore */ }
+  }
+
+  let audioCtx = null;
+  let masterGain = null;
+  let delayNode = null;
+  let musicTimer = null;
+  const DUNGEON_SCALE = [110.00, 123.47, 130.81, 146.83, 164.81, 174.61, 196.00, 220.00, 246.94];
+
+  function ensureAudio() {
+    if (audioCtx) {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      return;
+    }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audioCtx = new AC();
+
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = musicEnabled ? 0.32 : 0;
+    masterGain.connect(audioCtx.destination);
+
+    delayNode = audioCtx.createDelay(2.0);
+    delayNode.delayTime.value = 0.42;
+    const feedback = audioCtx.createGain();
+    feedback.gain.value = 0.33;
+    const delayFilter = audioCtx.createBiquadFilter();
+    delayFilter.type = 'lowpass';
+    delayFilter.frequency.value = 1600;
+    delayNode.connect(delayFilter);
+    delayFilter.connect(feedback);
+    feedback.connect(delayNode);
+    delayNode.connect(masterGain);
+
+    startDrone();
+    scheduleNextNote();
+  }
+
+  function startDrone() {
+    const osc1 = audioCtx.createOscillator();
+    osc1.type = 'sine';
+    osc1.frequency.value = 55;
+    const gain1 = audioCtx.createGain();
+    gain1.gain.value = 0.16;
+    osc1.connect(gain1);
+    gain1.connect(masterGain);
+    osc1.start();
+
+    const lfo = audioCtx.createOscillator();
+    lfo.frequency.value = 0.06;
+    const lfoGain = audioCtx.createGain();
+    lfoGain.gain.value = 0.05;
+    lfo.connect(lfoGain);
+    lfoGain.connect(gain1.gain);
+    lfo.start();
+
+    const osc2 = audioCtx.createOscillator();
+    osc2.type = 'triangle';
+    osc2.frequency.value = 82.41;
+    const gain2 = audioCtx.createGain();
+    gain2.gain.value = 0.07;
+    osc2.connect(gain2);
+    gain2.connect(masterGain);
+    osc2.start();
+  }
+
+  function playDungeonNote(freq, time, dur) {
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 2200;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.linearRampToValueAtTime(0.2, time + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    osc.connect(filter);
+    filter.connect(g);
+    g.connect(masterGain);
+    g.connect(delayNode);
+    osc.frequency.value = freq;
+    osc.start(time);
+    osc.stop(time + dur + 0.05);
+  }
+
+  function scheduleNextNote() {
+    if (!audioCtx) return;
+    const freq = choice(DUNGEON_SCALE);
+    const dur = 1.1 + rng() * 1.1;
+    playDungeonNote(freq, audioCtx.currentTime + 0.03, dur);
+    const nextDelay = 850 + rng() * 950;
+    musicTimer = setTimeout(scheduleNextNote, nextDelay);
+  }
+
+  function setMusicEnabled(v) {
+    musicEnabled = v;
+    if (audioCtx && masterGain) {
+      masterGain.gain.cancelScheduledValues(audioCtx.currentTime);
+      masterGain.gain.linearRampToValueAtTime(v ? 0.32 : 0, audioCtx.currentTime + 0.3);
+    }
+    updateMusicBtn();
+    saveGame();
+  }
+
+  function updateMusicBtn() {
+    const btn = document.getElementById('musicToggleBtn');
+    if (btn) btn.innerHTML = musicEnabled ? '&#9834; ON' : '&#9834; OFF';
+  }
+
+  function playBlip(freq, time, dur, peak, type) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    osc.type = type || 'square';
+    osc.frequency.value = freq;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.linearRampToValueAtTime(peak, time + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(time);
+    osc.stop(time + dur + 0.02);
+  }
+
+  function playCoinSfx() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    playBlip(880, t, 0.09, 0.22);
+    playBlip(1318.51, t + 0.06, 0.14, 0.22);
+  }
+
+  function playPickupSfx() {
+    if (!audioCtx) return;
+    playBlip(660, audioCtx.currentTime, 0.14, 0.18, 'triangle');
+  }
+
+  function playHitSfx(isPlayerAttacking) {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    osc.type = isPlayerAttacking ? 'square' : 'sawtooth';
+    osc.frequency.setValueAtTime(isPlayerAttacking ? 180 : 110, t);
+    osc.frequency.exponentialRampToValueAtTime(isPlayerAttacking ? 60 : 45, t + 0.12);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(t);
+    osc.stop(t + 0.16);
+  }
+
+  function playPotionSfx() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(340, t);
+    osc.frequency.linearRampToValueAtTime(520, t + 0.25);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.22, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(t);
+    osc.stop(t + 0.4);
+  }
+
+  function playLevelUpSfx() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const notes = [261.63, 329.63, 392.00, 523.25];
+    notes.forEach((freq, i) => playBlip(freq, t + i * 0.09, 0.22, 0.2, 'triangle'));
+  }
+
+  function playStairsSfx() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(300, t);
+    osc.frequency.exponentialRampToValueAtTime(90, t + 0.6);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.24, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.65);
+    osc.connect(g);
+    g.connect(masterGain);
+    if (delayNode) g.connect(delayNode);
+    osc.start(t);
+    osc.stop(t + 0.7);
+  }
+
+  function playDeathSfx() {
+    if (!audioCtx) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(220, t);
+    osc.frequency.exponentialRampToValueAtTime(55, t + 1.1);
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.26, t + 0.08);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+    osc.connect(g);
+    g.connect(masterGain);
+    if (delayNode) g.connect(delayNode);
+    osc.start(t);
+    osc.stop(t + 1.3);
   }
 
   const SHOP_ITEMS = [
@@ -420,6 +638,7 @@
       depth++;
       player.hp = Math.min(player.maxhp, player.hp + 3);
       log('地下 ' + depth + ' 階へ降りた。');
+      playStairsSfx();
       generateFloor();
       render();
       return;
@@ -437,6 +656,7 @@
       if (player.level % 3 === 0) player.def += 1;
       player.xpToNext = xpToNextFor(player.level);
       log('レベルアップ！ Lv.' + player.level + ' になり、HPが全回復した。');
+      playLevelUpSfx();
     }
   }
 
@@ -445,15 +665,18 @@
       const heal = randInt(6, 12);
       player.hp = Math.min(player.maxhp, player.hp + heal);
       log('ポーションを飲んだ。HPが ' + heal + ' 回復した。');
+      playPotionSfx();
     } else if (item.type === 'gold') {
       const g = randInt(5, 25);
       gold += g;
       log('金貨を ' + g + ' 枚拾った。');
+      playCoinSfx();
       saveGame();
     } else if (item.type === 'scroll') {
       player.maxhp += 3;
       player.hp += 3;
       log('力の巻物を読んだ。最大HPが増えた！');
+      playPickupSfx();
     }
     items = items.filter(it => it !== item);
   }
@@ -461,6 +684,7 @@
   function attack(attacker, defender, isPlayerAttacking) {
     const dmg = Math.max(1, (attacker.atk + randInt(0, 2)) - (defender.def || 0));
     defender.hp -= dmg;
+    playHitSfx(isPlayerAttacking);
     if (isPlayerAttacking) {
       log('あなたは ' + defender.name + ' に ' + dmg + ' ダメージ！');
     } else {
@@ -512,6 +736,7 @@
       '<br>所持ゴールド: ' + gold + '<br>スコア: ' + score +
       (newBest ? '<br><span style="color:#d8b23a;">新記録達成！</span>' : '');
     overlay.style.display = 'flex';
+    playDeathSfx();
     saveGame();
     render();
   }
@@ -825,10 +1050,17 @@
   document.getElementById('menuStoreBtn').onclick = () => showStoreScreen();
   document.getElementById('storeBackBtn').onclick = () => showMenu();
   document.getElementById('storeStartBtn').onclick = () => newGame();
+  document.getElementById('musicToggleBtn').onclick = () => {
+    ensureAudio();
+    setMusicEnabled(!musicEnabled);
+  };
 
+  document.addEventListener('pointerdown', ensureAudio, { once: true });
+  document.addEventListener('keydown', ensureAudio, { once: true });
   window.addEventListener('beforeunload', saveGame);
 
   loadGame();
+  updateMusicBtn();
   showMenu();
 })();
 </script>
