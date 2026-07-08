@@ -46,6 +46,7 @@
   .scr-overlay h2 { color: #c9a24b; font-size: 24px; margin: 0 0 6px; letter-spacing: 3px; font-weight: normal; }
   .scr-overlay .sub { color: #9a947f; font-size: 13px; margin-bottom: 14px; }
   #overlay h2 { color: #b23a3a; font-size: 26px; letter-spacing: 3px; }
+  #overlay h2.win { color: #8fce8f; }
   .scr-overlay button {
     margin-top: 10px; padding: 8px 22px; background: #2a2a30; color: #d8c98a;
     border: 1px solid #6b6250; cursor: pointer; font-family: inherit; font-size: 14px; min-width: 200px;
@@ -78,21 +79,32 @@
   }
   #storeList { width: 100%; max-width: 480px; margin: 6px 0; }
   .storeRow {
-    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; row-gap: 6px;
-    border: 1px solid #3a3630; background: #16161a; padding: 8px 12px; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid #3a3630; background: #16161a; padding: 10px 12px; margin-bottom: 8px;
   }
-  .storeInfo { text-align: left; }
+  .storeInfo { flex: 1 1 auto; min-width: 0; text-align: left; }
   .storeName { color: #d8d3c4; font-size: 14px; }
-  .storeDesc { color: #8a8578; font-size: 12px; margin-top: 2px; }
-  .storeRow button { min-width: 100px; margin: 0; padding: 6px 10px; font-size: 13px; }
+  .storeDesc { color: #8a8578; font-size: 12px; margin-top: 3px; line-height: 1.4; }
   #storeMsg { min-height: 16px; color: #d8b23a; font-size: 12px; margin-top: 4px; }
-  .storeBtns { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+  .storeBtns { display: flex; gap: 6px; flex: 0 0 auto; }
+  .storeRow button {
+    margin: 0; padding: 6px 4px; font-size: 13px; box-sizing: border-box;
+    text-align: center; white-space: nowrap; font-family: inherit; min-width: 0;
+  }
+  .buyBtn { width: 92px; }
   .classBtn {
-    width: 56px; min-width: 0 !important; padding: 6px 4px !important; font-size: 11px !important;
-    background: #201f24; border: 1px solid #4a4a52; color: #a9a49a; box-sizing: border-box;
+    width: 56px; font-size: 11px !important;
+    background: #201f24; border: 1px solid #4a4a52; color: #a9a49a;
   }
   .classBtn.selected { background: #3a5a3a; border-color: #6b9e6b; color: #eaf0ea; }
   .classBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+  @media (max-width: 480px) {
+    .storeRow { padding: 8px 10px; gap: 6px; }
+    .storeName { font-size: 13px; }
+    .storeDesc { font-size: 11px; }
+    .buyBtn { width: 76px; font-size: 12px; }
+    .classBtn { width: 48px; }
+  }
   #playerNameInput {
     width: 200px; margin-bottom: 10px; padding: 6px 10px; background: #16161a; color: #d8d3c4;
     border: 1px solid #4a4a52; font-family: inherit; font-size: 13px; text-align: center;
@@ -206,7 +218,7 @@
   const rankingList = document.getElementById('rankingList');
   const rankingMsg = document.getElementById('rankingMsg');
 
-  const GAME_VERSION = 'v1.11.4';
+  const GAME_VERSION = 'v1.13.0';
 
   let rng = Math.random;
   function randInt(a, b) { return Math.floor(rng() * (b - a + 1)) + a; }
@@ -215,6 +227,7 @@
   let screen = 'menu';
   let grid, rooms, explored, visible;
   let player, monsters, items, depth, messages, gameOver, turnCount, companion;
+  let stairsPos = null; // 現在の階の階段の座標(ボス撃破時に封印を解くために保持)
 
   let gold = 0;
   // companionLevels: 仲間の職業ごとに独立したレベル(職業を追加するときはここにも0を足す)
@@ -652,6 +665,23 @@
     { name: 'トロール', sym: 'T', sprite: 'troll',    hp: 20, atk: 7, def: 3, xp: 15, minDepth: 5 },
   ];
 
+  // 10階層ごと(10,20,...,100)に出現するボス。BOSS_NAMES[0]が10階、[9]が100階(最終ボス)。
+  const BOSS_NAMES = [
+    '穴蔵の番人', '骨の王', '深淵の巨人', '呪われし騎士', '業火の魔獣',
+    '氷結の女王', '影の支配者', '古の竜', '深層の悪夢', '石窟の支配者',
+  ];
+  function createBoss(tier) {
+    const name = BOSS_NAMES[tier - 1] || ('第' + tier + '層のボス');
+    const hp = Math.round(40 + tier * 38);
+    const atk = Math.round(9 + tier * 3.2);
+    const def = 2 + tier;
+    const xp = 30 + tier * 22;
+    return {
+      x: 0, y: 0, name, sym: 'B', sprite: 'boss', isBoss: true, bossTier: tier,
+      hp, maxhp: hp, atk, def, xp,
+    };
+  }
+
   function xpToNextFor(level) { return Math.round(10 * Math.pow(1.35, level - 1)); }
 
   function baseStats() {
@@ -747,25 +777,36 @@
     player.x = start.x; player.y = start.y;
 
     const stairsRoom = rooms[rooms.length - 1];
-    const stairsPos = centerOf(stairsRoom);
-    grid[stairsPos.y][stairsPos.x] = '>';
+    stairsPos = centerOf(stairsRoom);
+    const isBossFloor = depth % 10 === 0;
+    grid[stairsPos.y][stairsPos.x] = isBossFloor ? 'L' : '>';
 
     monsters = [];
-    const numMonsters = 3 + depth + randInt(0, 2);
-    const available = MONSTER_TYPES.filter(m => m.minDepth <= depth + 1);
-    for (let i = 0; i < numMonsters; i++) {
-      const room = choice(rooms.slice(1));
-      if (!room) continue;
-      const pos = randomFloorInRoom(room);
-      if (!pos) continue;
-      const template = choice(available);
-      const scale = 1 + (depth - 1) * 0.18;
-      monsters.push({
-        x: pos.x, y: pos.y,
-        name: template.name, sym: template.sym, sprite: template.sprite,
-        hp: Math.round(template.hp * scale), maxhp: Math.round(template.hp * scale),
-        atk: Math.round(template.atk * scale), def: template.def, xp: template.xp,
-      });
+    if (isBossFloor) {
+      const tier = depth / 10;
+      const boss = createBoss(tier);
+      const room = choice(rooms.slice(1)) || rooms[0];
+      const pos = randomFloorInRoom(room) || centerOf(room);
+      boss.x = pos.x; boss.y = pos.y;
+      monsters.push(boss);
+      log('地下 ' + depth + ' 階に強大な気配を感じる…');
+    } else {
+      const numMonsters = 3 + depth + randInt(0, 2);
+      const available = MONSTER_TYPES.filter(m => m.minDepth <= depth + 1);
+      for (let i = 0; i < numMonsters; i++) {
+        const room = choice(rooms.slice(1));
+        if (!room) continue;
+        const pos = randomFloorInRoom(room);
+        if (!pos) continue;
+        const template = choice(available);
+        const scale = 1 + (depth - 1) * 0.18;
+        monsters.push({
+          x: pos.x, y: pos.y,
+          name: template.name, sym: template.sym, sprite: template.sprite,
+          hp: Math.round(template.hp * scale), maxhp: Math.round(template.hp * scale),
+          atk: Math.round(template.atk * scale), def: template.def, xp: template.xp,
+        });
+      }
     }
 
     items = [];
@@ -818,7 +859,7 @@
   }
 
   function inBounds(x, y) { return x >= 0 && x < COLS && y >= 0 && y < ROWS; }
-  function isWalkable(x, y) { return inBounds(x, y) && grid[y][x] !== '#'; }
+  function isWalkable(x, y) { return inBounds(x, y) && grid[y][x] !== '#' && grid[y][x] !== 'L'; }
 
   function computeVisibility() {
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) visible[y][x] = false;
@@ -878,6 +919,7 @@
         monsters = monsters.filter(m => m !== target);
         player.xp += target.xp;
         checkLevelUp();
+        if (target.isBoss) onBossDefeated(target);
       }
       endTurn();
       return;
@@ -973,6 +1015,7 @@
         monsters = monsters.filter(m => m !== target);
         player.xp += target.xp;
         checkLevelUp();
+        if (target.isBoss) onBossDefeated(target);
       }
       return;
     }
@@ -1063,6 +1106,7 @@
     if (score > bestScore) { bestScore = score; newBest = true; }
     if (newBest) submitScore(playerName, bestDepth, bestScore);
     log('あなたは倒れた…');
+    overlayTitle.classList.remove('win');
     overlayTitle.textContent = 'YOU DIED';
     overlayStats.innerHTML = '到達階層: ' + depth + '<br>レベル: ' + player.level +
       '<br>所持ゴールド: ' + gold + '<br>スコア: ' + score +
@@ -1073,7 +1117,46 @@
     render();
   }
 
-  const COLORS = { wall: '#232028', wallDim: '#17151a', floor: '#3a352e', floorDim: '#211f1c', stairs: '#d8c98a' };
+  // ボスを倒した時の共通処理(プレイヤー・仲間どちらが倒しても呼ばれる)
+  function onBossDefeated(boss) {
+    const bonus = 50 + boss.bossTier * 30;
+    gold += bonus;
+    log('ボス「' + boss.name + '」を撃破した！ボーナス金貨 ' + bonus + ' 枚を獲得。');
+    playCoinSfx();
+    saveGame();
+    if (depth >= 100) {
+      winGame();
+    } else if (stairsPos) {
+      grid[stairsPos.y][stairsPos.x] = '>';
+      log('封印されていた階段の扉が開いた。');
+    }
+  }
+
+  function winGame() {
+    gameOver = true;
+    screen = 'dead'; // ゲーム終了状態は死亡時と共通の画面遷移を流用
+    const score = gold * 10 + depth * 50 + player.level * 20;
+    let newBest = false;
+    if (depth > bestDepth) { bestDepth = depth; newBest = true; }
+    if (score > bestScore) { bestScore = score; newBest = true; }
+    if (newBest) submitScore(playerName, bestDepth, bestScore);
+    log('石窟の支配者を打ち倒し、100階を制覇した！');
+    overlayTitle.classList.add('win');
+    overlayTitle.textContent = 'CLEAR!!';
+    overlayStats.innerHTML = '到達階層: ' + depth + '<br>レベル: ' + player.level +
+      '<br>所持ゴールド: ' + gold + '<br>スコア: ' + score +
+      '<br><span style="color:#8fce8f;">ゲームクリアおめでとう！</span>' +
+      (newBest ? '<br><span style="color:#d8b23a;">新記録達成！</span>' : '');
+    overlay.style.display = 'flex';
+    playLevelUpSfx();
+    saveGame();
+    render();
+  }
+
+  const COLORS = {
+    wall: '#232028', wallDim: '#17151a', floor: '#3a352e', floorDim: '#211f1c',
+    stairs: '#d8c98a', locked: '#7a2a2a', lockedDim: '#3a1818',
+  };
 
   function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1092,6 +1175,12 @@
           ctx.font = '18px monospace';
           ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
           ctx.fillText('>', x * TILE + TILE / 2, y * TILE + TILE / 2 + 1);
+        } else if (tile === 'L') {
+          // ボスを倒すまで封印されている階段
+          ctx.fillStyle = isVis ? COLORS.locked : COLORS.lockedDim;
+          ctx.font = '16px monospace';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText('封', x * TILE + TILE / 2, y * TILE + TILE / 2 + 1);
         }
       }
     }
@@ -1315,6 +1404,27 @@
       ctx.fillStyle = '#1a1a1a';
       ctx.beginPath(); ctx.arc(-3, -3, 0.6, 0, Math.PI * 2); ctx.fill();
       ctx.beginPath(); ctx.arc(3, -3, 0.6, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    },
+    boss(cx, cy, s) {
+      ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s);
+      ctx.fillStyle = '#3a1620';
+      ctx.beginPath();
+      ctx.moveTo(-9, 11); ctx.lineTo(-10, -2); ctx.quadraticCurveTo(-10, -10, 0, -10);
+      ctx.quadraticCurveTo(10, -10, 10, -2); ctx.lineTo(9, 11); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#5c1e2c';
+      ctx.beginPath(); ctx.ellipse(0, 7, 7, 3.4, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#15111a';
+      ctx.beginPath(); ctx.moveTo(-6, -8); ctx.lineTo(-9, -15); ctx.lineTo(-4, -7); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(6, -8); ctx.lineTo(9, -15); ctx.lineTo(4, -7); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(-9, -1); ctx.lineTo(-12.5, -3.6); ctx.lineTo(-8, 2); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(9, -1); ctx.lineTo(12.5, -3.6); ctx.lineTo(8, 2); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,70,70,0.35)';
+      ctx.beginPath(); ctx.arc(-3.6, -3, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3.6, -3, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ff4040';
+      ctx.beginPath(); ctx.arc(-3.6, -3, 1.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(3.6, -3, 1.4, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     },
     potion(cx, cy, s) {
