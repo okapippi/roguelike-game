@@ -88,8 +88,8 @@
   #storeMsg { min-height: 16px; color: #d8b23a; font-size: 12px; margin-top: 4px; }
   .storeBtns { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
   .classBtn {
-    min-width: 0 !important; padding: 6px 8px !important; font-size: 11px !important;
-    background: #201f24; border: 1px solid #4a4a52; color: #a9a49a;
+    width: 56px; min-width: 0 !important; padding: 6px 4px !important; font-size: 11px !important;
+    background: #201f24; border: 1px solid #4a4a52; color: #a9a49a; box-sizing: border-box;
   }
   .classBtn.selected { background: #3a5a3a; border-color: #6b9e6b; color: #eaf0ea; }
   .classBtn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -205,7 +205,7 @@
   const rankingList = document.getElementById('rankingList');
   const rankingMsg = document.getElementById('rankingMsg');
 
-  const GAME_VERSION = 'v1.11.0';
+  const GAME_VERSION = 'v1.11.2';
 
   let rng = Math.random;
   function randInt(a, b) { return Math.floor(rng() * (b - a + 1)) + a; }
@@ -1372,14 +1372,15 @@
     storeMsg.textContent = '';
     storeList.innerHTML = SHOP_ITEMS.map(item => {
       const cost = costFor(item);
-      let selectBtn = '';
+      // 選択ボタンの有無に関わらず幅を揃えるため、対象外の項目は非表示のプレースホルダーを入れる。
+      let selectBtn = '<button class="classBtn" style="visibility:hidden" tabindex="-1"></button>';
       if (item.key.indexOf('companion_') === 0) {
         const clsId = item.key.slice('companion_'.length);
         const owned = (shopUpgrades.companionLevels[clsId] || 0) > 0;
         const isSelected = shopUpgrades.companionClass === clsId;
         selectBtn = '<button class="classBtn' + (isSelected ? ' selected' : '') + '"' +
           ' data-cls="' + clsId + '"' + (owned ? '' : ' disabled') + '>' +
-          (isSelected ? '選択中' : '選択') + '</button>';
+          (isSelected ? '同行中' : '同行') + '</button>';
       }
       return '<div class="storeRow">' +
         '<div class="storeInfo"><div class="storeName">' + item.name + '</div>' +
