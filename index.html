@@ -172,7 +172,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <script>
-  const firebaseConfig = {
+  var firebaseConfig = {
     apiKey: "AIzaSyB6EyVRfOovwfYTAG0DO7GCvKdiQa52zfg",
     authDomain: "roguelike-game-506ae.firebaseapp.com",
     databaseURL: "https://roguelike-game-506ae-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -206,7 +206,7 @@
   const rankingList = document.getElementById('rankingList');
   const rankingMsg = document.getElementById('rankingMsg');
 
-  const GAME_VERSION = 'v1.11.2';
+  const GAME_VERSION = 'v1.11.4';
 
   let rng = Math.random;
   function randInt(a, b) { return Math.floor(rng() * (b - a + 1)) + a; }
@@ -1378,7 +1378,7 @@
       if (item.key.indexOf('companion_') === 0) {
         const clsId = item.key.slice('companion_'.length);
         const owned = (shopUpgrades.companionLevels[clsId] || 0) > 0;
-        const isSelected = shopUpgrades.companionClass === clsId;
+        const isSelected = owned && shopUpgrades.companionClass === clsId;
         selectBtn = '<button class="classBtn' + (isSelected ? ' selected' : '') + '"' +
           ' data-cls="' + clsId + '"' + (owned ? '' : ' disabled') + '>' +
           (isSelected ? '同行中' : '同行') + '</button>';
