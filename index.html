@@ -78,7 +78,7 @@
   }
   #storeList { width: 100%; max-width: 480px; margin: 6px 0; }
   .storeRow {
-    display: flex; justify-content: space-between; align-items: center;
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; row-gap: 6px;
     border: 1px solid #3a3630; background: #16161a; padding: 8px 12px; margin-bottom: 6px;
   }
   .storeInfo { text-align: left; }
@@ -86,12 +86,13 @@
   .storeDesc { color: #8a8578; font-size: 12px; margin-top: 2px; }
   .storeRow button { min-width: 100px; margin: 0; padding: 6px 10px; font-size: 13px; }
   #storeMsg { min-height: 16px; color: #d8b23a; font-size: 12px; margin-top: 4px; }
-  .companionClassRow { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+  .storeBtns { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
   .classBtn {
-    min-width: 0 !important; padding: 4px 8px !important; font-size: 11px !important;
+    min-width: 0 !important; padding: 6px 8px !important; font-size: 11px !important;
     background: #201f24; border: 1px solid #4a4a52; color: #a9a49a;
   }
   .classBtn.selected { background: #3a5a3a; border-color: #6b9e6b; color: #eaf0ea; }
+  .classBtn:disabled { opacity: 0.4; cursor: not-allowed; }
   #playerNameInput {
     width: 200px; margin-bottom: 10px; padding: 6px 10px; background: #16161a; color: #d8d3c4;
     border: 1px solid #4a4a52; font-family: inherit; font-size: 13px; text-align: center;
@@ -204,7 +205,7 @@
   const rankingList = document.getElementById('rankingList');
   const rankingMsg = document.getElementById('rankingMsg');
 
-  const GAME_VERSION = 'v1.10.0';
+  const GAME_VERSION = 'v1.11.0';
 
   let rng = Math.random;
   function randInt(a, b) { return Math.floor(rng() * (b - a + 1)) + a; }
@@ -215,7 +216,12 @@
   let player, monsters, items, depth, messages, gameOver, turnCount, companion;
 
   let gold = 0;
-  const shopUpgrades = { hp: 0, atk: 0, def: 0, companion: 0, companionClass: 'warrior' };
+  // companionLevels: 仲間の職業ごとに独立したレベル(職業を追加するときはここにも0を足す)
+  const shopUpgrades = {
+    hp: 0, atk: 0, def: 0,
+    companionClass: 'warrior',
+    companionLevels: { warrior: 0, mage: 0, bard: 0 },
+  };
   let bestDepth = 0;
   let bestScore = 0;
   let musicEnabled = true;
@@ -256,8 +262,16 @@
         shopUpgrades.hp = data.shopUpgrades.hp || 0;
         shopUpgrades.atk = data.shopUpgrades.atk || 0;
         shopUpgrades.def = data.shopUpgrades.def || 0;
-        shopUpgrades.companion = data.shopUpgrades.companion || 0;
         shopUpgrades.companionClass = data.shopUpgrades.companionClass || 'warrior';
+        if (data.shopUpgrades.companionLevels) {
+          Object.keys(shopUpgrades.companionLevels).forEach(clsId => {
+            shopUpgrades.companionLevels[clsId] = data.shopUpgrades.companionLevels[clsId] || 0;
+          });
+        } else if (typeof data.shopUpgrades.companion === 'number') {
+          // 旧セーブデータ(仲間レベル共通・v1.10.0以前)からの移行:
+          // 当時選んでいた職業にそのままレベルを引き継ぐ。
+          shopUpgrades.companionLevels[shopUpgrades.companionClass] = data.shopUpgrades.companion;
+        }
       }
     } catch (e) { /* corrupt save data, ignore */ }
   }
@@ -605,16 +619,27 @@
       level: () => shopUpgrades.def,
       desc: () => '防御力 +1 (現在 Lv.' + shopUpgrades.def + ')',
       buy: () => { shopUpgrades.def++; } },
-    { key: 'companion', name: '仲間', baseCost: 60, costStep: 35,
-      level: () => shopUpgrades.companion,
-      desc: () => {
-        const cls = companionClassOf(shopUpgrades.companionClass);
-        return shopUpgrades.companion === 0
-          ? cls.name + 'が同行し、' + cls.desc + '(未加入)'
-          : cls.name + ' Lv.' + shopUpgrades.companion + ' が同行中(強化するほど強くなる)';
-      },
-      buy: () => { shopUpgrades.companion++; } },
   ];
+  // 仲間は職業ごとに独立したショップ項目・レベルを持つ(COMPANION_CLASSES を元に自動生成)。
+  getUnlockedCompanionClasses().forEach(cls => {
+    SHOP_ITEMS.push({
+      key: 'companion_' + cls.id,
+      name: '仲間:' + cls.name,
+      baseCost: 60, costStep: 35,
+      level: () => shopUpgrades.companionLevels[cls.id] || 0,
+      desc: () => {
+        const lvl = shopUpgrades.companionLevels[cls.id] || 0;
+        return lvl === 0
+          ? cls.desc + '(未加入)'
+          : cls.desc + ' Lv.' + lvl + '(強化するほど強くなる)';
+      },
+      buy: () => {
+        const wasUnowned = (shopUpgrades.companionLevels[cls.id] || 0) === 0;
+        shopUpgrades.companionLevels[cls.id] = (shopUpgrades.companionLevels[cls.id] || 0) + 1;
+        if (wasUnowned) shopUpgrades.companionClass = cls.id; // 初購入時は自動的に同行者として選択
+      },
+    });
+  });
   function costFor(item) { return item.baseCost + item.level() * item.costStep; }
 
   const MONSTER_TYPES = [
@@ -659,8 +684,10 @@
   }
 
   function initCompanion() {
-    if (shopUpgrades.companion < 1) { companion = null; return; }
-    const stats = companionStatsFor(shopUpgrades.companionClass, shopUpgrades.companion);
+    const clsId = shopUpgrades.companionClass;
+    const lvl = shopUpgrades.companionLevels[clsId] || 0;
+    if (lvl < 1) { companion = null; return; }
+    const stats = companionStatsFor(clsId, lvl);
     companion = Object.assign({ x: player.x, y: player.y }, stats);
     placeCompanionNearPlayer();
   }
@@ -1345,19 +1372,20 @@
     storeMsg.textContent = '';
     storeList.innerHTML = SHOP_ITEMS.map(item => {
       const cost = costFor(item);
-      let extra = '';
-      if (item.key === 'companion') {
-        extra = '<div class="companionClassRow">' +
-          getUnlockedCompanionClasses().map(c =>
-            '<button class="classBtn' + (shopUpgrades.companionClass === c.id ? ' selected' : '') +
-            '" data-cls="' + c.id + '">' + c.name + '</button>'
-          ).join('') +
-          '</div>';
+      let selectBtn = '';
+      if (item.key.indexOf('companion_') === 0) {
+        const clsId = item.key.slice('companion_'.length);
+        const owned = (shopUpgrades.companionLevels[clsId] || 0) > 0;
+        const isSelected = shopUpgrades.companionClass === clsId;
+        selectBtn = '<button class="classBtn' + (isSelected ? ' selected' : '') + '"' +
+          ' data-cls="' + clsId + '"' + (owned ? '' : ' disabled') + '>' +
+          (isSelected ? '選択中' : '選択') + '</button>';
       }
       return '<div class="storeRow">' +
         '<div class="storeInfo"><div class="storeName">' + item.name + '</div>' +
-        '<div class="storeDesc">' + item.desc() + '</div>' + extra + '</div>' +
-        '<button class="buyBtn" data-key="' + item.key + '">' + cost + 'G 購入</button>' +
+        '<div class="storeDesc">' + item.desc() + '</div></div>' +
+        '<div class="storeBtns">' + selectBtn +
+        '<button class="buyBtn" data-key="' + item.key + '">' + cost + 'G 購入</button></div>' +
         '</div>';
     }).join('');
     storeList.querySelectorAll('.buyBtn').forEach(btn => {
@@ -1370,7 +1398,9 @@
 
   function selectCompanionClass(clsId) {
     const cls = COMPANION_CLASSES[clsId];
-    if (!cls || !cls.unlocked || shopUpgrades.companionClass === clsId) return;
+    if (!cls || !cls.unlocked) return;
+    if ((shopUpgrades.companionLevels[clsId] || 0) < 1) return; // 未購入の職業は選択不可
+    if (shopUpgrades.companionClass === clsId) return;
     shopUpgrades.companionClass = clsId;
     saveGame();
     storeMsg.textContent = cls.name + ' を選択した。次の冒険から同行する。';
